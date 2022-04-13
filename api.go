@@ -18,7 +18,12 @@ type RegResponse struct {
 	Allowfrom  []string `json:"allowfrom"`
 }
 
-func webRegisterPost(w http.ResponseWriter, r *http.Request) {
+type webRegisterHandler struct {
+	config *DNSConfig
+	db     database
+}
+
+func (h webRegisterHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		w.Header().Set("Allow", "POST")
 		w.WriteHeader(http.StatusMethodNotAllowed)
@@ -54,7 +59,7 @@ func webRegisterPost(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Create new user
-	nu, err := DB.Register(aTXT.AllowFrom)
+	nu, err := h.db.Register(aTXT.AllowFrom)
 	if err != nil {
 		errstr := fmt.Sprintf("%v", err)
 		reg = jsonError(errstr)
@@ -62,7 +67,7 @@ func webRegisterPost(w http.ResponseWriter, r *http.Request) {
 		log.WithFields(log.Fields{"error": err.Error()}).Debug("Error in registration")
 	} else {
 		log.WithFields(log.Fields{"user": nu.Username.String()}).Debug("Created new user")
-		regStruct := RegResponse{nu.Username.String(), nu.Password, nu.Subdomain + "." + Config.General.Domain, nu.Subdomain, nu.AllowFrom.ValidEntries()}
+		regStruct := RegResponse{nu.Username.String(), nu.Password, nu.Subdomain + "." + h.config.General.Domain, nu.Subdomain, nu.AllowFrom.ValidEntries()}
 		regStatus = http.StatusCreated
 		reg, err = json.Marshal(regStruct)
 		if err != nil {
@@ -76,7 +81,11 @@ func webRegisterPost(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(reg)
 }
 
-func webUpdatePost(w http.ResponseWriter, r *http.Request) {
+type webUpdateHandler struct {
+	db database
+}
+
+func (h webUpdateHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		w.Header().Set("Allow", "POST")
 		w.WriteHeader(http.StatusMethodNotAllowed)
@@ -102,7 +111,7 @@ func webUpdatePost(w http.ResponseWriter, r *http.Request) {
 		updStatus = http.StatusBadRequest
 		upd = jsonError("bad_txt")
 	} else if validSubdomain(a.Subdomain) && validTXT(a.Value) {
-		err := DB.Update(a.ACMETxtPost)
+		err := h.db.Update(a.ACMETxtPost)
 		if err != nil {
 			log.WithFields(log.Fields{"error": err.Error()}).Debug("Error while trying to update record")
 			updStatus = http.StatusInternalServerError

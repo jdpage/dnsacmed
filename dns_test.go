@@ -49,6 +49,11 @@ func hasExpectedTXTAnswer(answer []dns.RR, cmpTXT string) error {
 }
 
 func TestQuestionDBError(t *testing.T) {
+	config := setupConfig()
+	db := setupDB(config)
+	dnsServer, stop := setupDNSServer(config, db)
+	defer stop()
+
 	testdb.SetQueryWithArgsFunc(func(query string, args []driver.Value) (result driver.Rows, err error) {
 		columns := []string{"Username", "Password", "Subdomain", "Value", "LastActive"}
 		return testdb.RowsFromSlice(columns, [][]driver.Value{}), errors.New("Prepared query error")
@@ -60,19 +65,21 @@ func TestQuestionDBError(t *testing.T) {
 	if err != nil {
 		t.Errorf("Got error: %v", err)
 	}
-	oldDb := DB.GetBackend()
+	oldDb := db.GetBackend()
 
-	DB.SetBackend(tdb)
-	defer DB.SetBackend(oldDb)
+	db.SetBackend(tdb)
+	defer db.SetBackend(oldDb)
 
 	q := dns.Question{Name: dns.Fqdn("whatever.tld"), Qtype: dns.TypeTXT, Qclass: dns.ClassINET}
-	_, err = dnsserver.answerTXT(q)
+	_, err = dnsServer.answerTXT(q)
 	if err == nil {
 		t.Errorf("Expected error but got none")
 	}
 }
 
 func TestParse(t *testing.T) {
+	dnsServer := NewDNSServer(nil, "", "", "")
+
 	var testcfg = DNSConfig{
 		General: general{
 			Domain:        ")",
@@ -81,13 +88,17 @@ func TestParse(t *testing.T) {
 			StaticRecords: []string{},
 		},
 	}
-	dnsserver.ParseRecords(testcfg)
+	dnsServer.ParseRecords(testcfg)
 	if !loggerHasEntryWithMessage("Error while adding SOA record") {
 		t.Errorf("Expected SOA parsing to return error, but did not find one")
 	}
 }
 
 func TestResolveA(t *testing.T) {
+	config := setupConfig()
+	_, stop := setupDNSServer(config, nil)
+	defer stop()
+
 	resolv := resolver{server: "127.0.0.1:15353"}
 	answer, err := resolv.lookup("auth.example.org", dns.TypeA)
 	if err != nil {
@@ -105,6 +116,10 @@ func TestResolveA(t *testing.T) {
 }
 
 func TestEDNS(t *testing.T) {
+	config := setupConfig()
+	_, stop := setupDNSServer(config, nil)
+	defer stop()
+
 	resolv := resolver{server: "127.0.0.1:15353"}
 	answer, _ := resolv.lookup("auth.example.org", dns.TypeOPT)
 	if answer.Rcode != dns.RcodeSuccess {
@@ -113,6 +128,10 @@ func TestEDNS(t *testing.T) {
 }
 
 func TestEDNSA(t *testing.T) {
+	config := setupConfig()
+	_, stop := setupDNSServer(config, nil)
+	defer stop()
+
 	msg := new(dns.Msg)
 	msg.Id = dns.Id()
 	msg.Question = make([]dns.Question, 1)
@@ -133,6 +152,10 @@ func TestEDNSA(t *testing.T) {
 }
 
 func TestEDNSBADVERS(t *testing.T) {
+	config := setupConfig()
+	_, stop := setupDNSServer(config, nil)
+	defer stop()
+
 	msg := new(dns.Msg)
 	msg.Id = dns.Id()
 	msg.Question = make([]dns.Question, 1)
@@ -153,6 +176,10 @@ func TestEDNSBADVERS(t *testing.T) {
 }
 
 func TestResolveCNAME(t *testing.T) {
+	config := setupConfig()
+	_, stop := setupDNSServer(config, nil)
+	defer stop()
+
 	resolv := resolver{server: "127.0.0.1:15353"}
 	expected := "cn.example.org.	3600	IN	CNAME	something.example.org."
 	answer, err := resolv.lookup("cn.example.org", dns.TypeCNAME)
@@ -171,6 +198,10 @@ func TestResolveCNAME(t *testing.T) {
 }
 
 func TestAuthoritative(t *testing.T) {
+	config := setupConfig()
+	_, stop := setupDNSServer(config, nil)
+	defer stop()
+
 	resolv := resolver{server: "127.0.0.1:15353"}
 	answer, _ := resolv.lookup("nonexistent.auth.example.org", dns.TypeA)
 	if answer.Rcode != dns.RcodeNameError {
@@ -195,16 +226,21 @@ func TestAuthoritative(t *testing.T) {
 }
 
 func TestResolveTXT(t *testing.T) {
+	config := setupConfig()
+	db := setupDB(config)
+	_, stop := setupDNSServer(config, db)
+	defer stop()
+
 	resolv := resolver{server: "127.0.0.1:15353"}
 	validTXT := "______________valid_response_______________"
 
-	atxt, err := DB.Register(cidrslice{})
+	atxt, err := db.Register(cidrslice{})
 	if err != nil {
 		t.Errorf("Could not initiate db record: [%v]", err)
 		return
 	}
 	atxt.Value = validTXT
-	err = DB.Update(atxt.ACMETxtPost)
+	err = db.Update(atxt.ACMETxtPost)
 	if err != nil {
 		t.Errorf("Could not update db record: [%v]", err)
 		return
@@ -256,6 +292,10 @@ func TestResolveTXT(t *testing.T) {
 }
 
 func TestCaseInsensitiveResolveA(t *testing.T) {
+	config := setupConfig()
+	_, stop := setupDNSServer(config, nil)
+	defer stop()
+
 	resolv := resolver{server: "127.0.0.1:15353"}
 	answer, err := resolv.lookup("aUtH.eXAmpLe.org", dns.TypeA)
 	if err != nil {
@@ -268,6 +308,10 @@ func TestCaseInsensitiveResolveA(t *testing.T) {
 }
 
 func TestCaseInsensitiveResolveSOA(t *testing.T) {
+	config := setupConfig()
+	_, stop := setupDNSServer(config, nil)
+	defer stop()
+
 	resolv := resolver{server: "127.0.0.1:15353"}
 	answer, _ := resolv.lookup("doesnotexist.aUtH.eXAmpLe.org", dns.TypeSOA)
 	if answer.Rcode != dns.RcodeNameError {

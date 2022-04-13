@@ -6,14 +6,12 @@ import (
 	"io/ioutil"
 	"os"
 	"sync"
-	"testing"
 
 	log "github.com/sirupsen/logrus"
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 )
 
 var loghook = new(logrustest.Hook)
-var dnsserver *DNSServer
 
 var (
 	postgres = flag.Bool("postgres", false, "run integration tests against PostgreSQL")
@@ -27,42 +25,41 @@ var records = []string{
 	"ns2.auth.example.org. A 192.168.1.102",
 }
 
-func TestMain(m *testing.M) {
+func init() {
 	setupTestLogger()
-	setupConfig()
-	flag.Parse()
+}
 
+func setupDB(config *DNSConfig) database {
 	newDb := new(acmedb)
 	if *postgres {
-		Config.Database.Engine = "postgres"
+		config.Database.Engine = "postgres"
 		err := newDb.Init("postgres", "postgres://acmedns:acmedns@localhost/acmedns")
 		if err != nil {
 			fmt.Println("PostgreSQL integration tests expect database \"acmedns\" running in localhost, with username and password set to \"acmedns\"")
 			os.Exit(1)
 		}
 	} else {
-		Config.Database.Engine = "sqlite3"
+		config.Database.Engine = "sqlite3"
 		_ = newDb.Init("sqlite3", ":memory:")
 	}
-	DB = newDb
-	dnsserver = NewDNSServer(DB, Config.General.Listen, Config.General.Proto, Config.General.Domain)
-	dnsserver.ParseRecords(Config)
-
-	// Make sure that we're not creating a race condition in tests
-	var wg sync.WaitGroup
-	wg.Add(1)
-	dnsserver.Server.NotifyStartedFunc = func() {
-		wg.Done()
-	}
-	go dnsserver.Start(make(chan error, 1))
-	wg.Wait()
-	exitval := m.Run()
-	_ = dnsserver.Server.Shutdown()
-	DB.Close()
-	os.Exit(exitval)
+	return newDb
 }
 
-func setupConfig() {
+func setupDNSServer(config *DNSConfig, db database) (*DNSServer, func() error) {
+	dnsserver := NewDNSServer(db, config.General.Listen, config.General.Proto, config.General.Domain)
+	dnsserver.ParseRecords(*config)
+
+	// Make sure that the server has finished starting up before continuing
+	var wg sync.WaitGroup
+	wg.Add(1)
+	dnsserver.Server.NotifyStartedFunc = wg.Done
+	go dnsserver.Start(make(chan error, 1))
+	wg.Wait()
+
+	return dnsserver, dnsserver.Server.Shutdown
+}
+
+func setupConfig() *DNSConfig {
 	var dbcfg = dbsettings{
 		Engine:     "sqlite3",
 		Connection: ":memory:",
@@ -91,7 +88,7 @@ func setupConfig() {
 		API:      httpapicfg,
 	}
 
-	Config = dnscfg
+	return &dnscfg
 }
 
 func setupTestLogger() {

@@ -7,12 +7,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// Config is global configuration struct
-var Config DNSConfig
-
-// DB is used to access the database functions in acme-dns
-var DB database
-
 // DNSConfig holds the config structure
 type DNSConfig struct {
 	General   general
@@ -60,7 +54,8 @@ type logconfig struct {
 
 type acmedb struct {
 	sync.Mutex
-	DB *sql.DB
+	DB     *sql.DB
+	engine string
 }
 
 type database interface {

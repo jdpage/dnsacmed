@@ -6,7 +6,7 @@ import (
 )
 
 func TestUpdateAllowedFromIP(t *testing.T) {
-	Config.API.UseHeader = false
+	m := authMiddleware{config: &DNSConfig{API: httpapi{UseHeader: false}}}
 	userWithAllow := newACMETxt()
 	userWithAllow.AllowFrom = cidrslice{"192.168.1.2/32", "[::1]/128"}
 	userWithoutAllow := newACMETxt()
@@ -22,12 +22,12 @@ func TestUpdateAllowedFromIP(t *testing.T) {
 	} {
 		newreq, _ := http.NewRequest("GET", "/whatever", nil)
 		newreq.RemoteAddr = test.remoteaddr
-		ret := updateAllowedFromIP(newreq, userWithAllow)
+		ret := m.updateAllowedFromIP(newreq, userWithAllow)
 		if test.expected != ret {
 			t.Errorf("Test %d: Unexpected result for user with allowForm set", i)
 		}
 
-		if !updateAllowedFromIP(newreq, userWithoutAllow) {
+		if !m.updateAllowedFromIP(newreq, userWithoutAllow) {
 			t.Errorf("Test %d: Unexpected result for user without allowForm set", i)
 		}
 	}

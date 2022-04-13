@@ -57,6 +57,7 @@ func getSQLiteStmt(s string) string {
 func (d *acmedb) Init(engine string, connection string) error {
 	d.Lock()
 	defer d.Unlock()
+	d.engine = engine
 	db, err := sql.Open(engine, connection)
 	if err != nil {
 		return err
@@ -70,7 +71,7 @@ func (d *acmedb) Init(engine string, connection string) error {
 	}
 	_, _ = d.DB.Exec(acmeTable)
 	_, _ = d.DB.Exec(userTable)
-	if Config.Database.Engine == "sqlite3" {
+	if d.engine == "sqlite3" {
 		_, _ = d.DB.Exec(txtTable)
 	} else {
 		_, _ = d.DB.Exec(txtTablePG)
@@ -153,7 +154,7 @@ func (d *acmedb) handleDBUpgradeTo1() error {
 		}
 	}
 	// SQLite doesn't support dropping columns
-	if Config.Database.Engine != "sqlite3" {
+	if d.engine != "sqlite3" {
 		_, _ = tx.Exec("ALTER TABLE records DROP COLUMN IF EXISTS Value")
 		_, _ = tx.Exec("ALTER TABLE records DROP COLUMN IF EXISTS LastActive")
 	}
@@ -193,7 +194,7 @@ func (d *acmedb) Register(afrom cidrslice) (ACMETxt, error) {
         Subdomain,
 		AllowFrom) 
         values($1, $2, $3, $4)`
-	if Config.Database.Engine == "sqlite3" {
+	if d.engine == "sqlite3" {
 		regSQL = getSQLiteStmt(regSQL)
 	}
 	sm, err := tx.Prepare(regSQL)
@@ -218,7 +219,7 @@ func (d *acmedb) GetByUsername(u uuid.UUID) (ACMETxt, error) {
 	FROM records
 	WHERE Username=$1 LIMIT 1
 	`
-	if Config.Database.Engine == "sqlite3" {
+	if d.engine == "sqlite3" {
 		getSQL = getSQLiteStmt(getSQL)
 	}
 
@@ -255,7 +256,7 @@ func (d *acmedb) GetTXTForDomain(domain string) ([]string, error) {
 	getSQL := `
 	SELECT Value FROM txt WHERE Subdomain=$1 LIMIT 2
 	`
-	if Config.Database.Engine == "sqlite3" {
+	if d.engine == "sqlite3" {
 		getSQL = getSQLiteStmt(getSQL)
 	}
 
@@ -293,7 +294,7 @@ func (d *acmedb) Update(a ACMETxtPost) error {
 	WHERE rowid=(
 		SELECT rowid FROM txt WHERE Subdomain=$3 ORDER BY LastUpdate LIMIT 1)
 	`
-	if Config.Database.Engine == "sqlite3" {
+	if d.engine == "sqlite3" {
 		updSQL = getSQLiteStmt(updSQL)
 	}
 
