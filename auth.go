@@ -17,7 +17,7 @@ const ACMETxtKey key = 0
 
 // Auth middleware for update request
 type authMiddleware struct {
-	config *DNSConfig
+	config *Config
 	db     database
 }
 

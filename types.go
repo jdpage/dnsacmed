@@ -8,48 +8,45 @@ import (
 )
 
 // DNSConfig holds the config structure
-type DNSConfig struct {
-	General   general
-	Database  dbsettings
-	API       httpapi
-	Logconfig logconfig
+type Config struct {
+	DNS      dnsConfig `json:"dns"`
+	Database dbConfig  `json:"database"`
+	API      apiConfig `json:"api"`
+	Logging  logConfig `json:"logging"`
 }
 
 // Config file general section
-type general struct {
-	Listen        string
-	Proto         string `toml:"protocol"`
-	Domain        string
-	Nsname        string
-	Nsadmin       string
-	StaticRecords []string `toml:"records"`
+type dnsConfig struct {
+	Listen        string   `json:"listen"`
+	Proto         string   `json:"protocol"`
+	Domain        string   `json:"domain"`
+	NSName        string   `json:"nsname"`
+	NSAdmin       string   `json:"nsadmin"`
+	StaticRecords []string `json:"records"`
 }
 
-type dbsettings struct {
-	Engine     string
-	Connection string
+type dbConfig struct {
+	Engine     string `json:"engine"`
+	Connection string `json:"connection"`
 }
 
 // API config
-type httpapi struct {
-	Domain              string `toml:"api_domain"`
-	IP                  string
-	DisableRegistration bool   `toml:"disable_registration"`
-	AutocertPort        string `toml:"autocert_port"`
-	Port                string `toml:"port"`
-	TLS                 string
-	TLSCertPrivkey      string `toml:"tls_cert_privkey"`
-	TLSCertFullchain    string `toml:"tls_cert_fullchain"`
-	UseHeader           bool   `toml:"use_header"`
-	HeaderName          string `toml:"header_name"`
+type apiConfig struct {
+	Listen              string `json:"listen"`
+	DisableRegistration bool   `json:"disable_registration"`
+	TLS                 bool   `json:"tls"`
+	TLSCertPrivkey      string `json:"tls_cert_privkey"`
+	TLSCertFullchain    string `json:"tls_cert_fullchain"`
+	UseHeader           bool   `json:"use_header"`
+	HeaderName          string `json:"header_name"`
 }
 
 // Logging config
-type logconfig struct {
-	Level   string `toml:"loglevel"`
-	Logtype string `toml:"logtype"`
-	File    string `toml:"logfile"`
-	Format  string `toml:"logformat"`
+type logConfig struct {
+	Level   string `json:"level"`
+	Logtype string `json:"type"`
+	File    string `json:"file"`
+	Format  string `json:"format"`
 }
 
 type acmedb struct {

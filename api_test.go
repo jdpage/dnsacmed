@@ -45,7 +45,7 @@ func getExpect(t *testing.T, server *httptest.Server) *httpexpect.Expect {
 	})
 }
 
-func setupRouter(config *DNSConfig, db database, noauth bool) http.Handler {
+func setupRouter(config *Config, db database, noauth bool) http.Handler {
 	api := http.NewServeMux()
 
 	api.Handle("/register", webRegisterHandler{config, db})

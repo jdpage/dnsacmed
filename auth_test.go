@@ -6,7 +6,7 @@ import (
 )
 
 func TestUpdateAllowedFromIP(t *testing.T) {
-	m := authMiddleware{config: &DNSConfig{API: httpapi{UseHeader: false}}}
+	m := authMiddleware{config: &Config{API: apiConfig{UseHeader: false}}}
 	userWithAllow := newACMETxt()
 	userWithAllow.AllowFrom = cidrslice{"192.168.1.2/32", "[::1]/128"}
 	userWithoutAllow := newACMETxt()

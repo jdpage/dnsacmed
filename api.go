@@ -19,7 +19,7 @@ type RegResponse struct {
 }
 
 type webRegisterHandler struct {
-	config *DNSConfig
+	config *Config
 	db     database
 }
 
@@ -67,7 +67,7 @@ func (h webRegisterHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		log.WithFields(log.Fields{"error": err.Error()}).Debug("Error in registration")
 	} else {
 		log.WithFields(log.Fields{"user": nu.Username.String()}).Debug("Created new user")
-		regStruct := RegResponse{nu.Username.String(), nu.Password, nu.Subdomain + "." + h.config.General.Domain, nu.Subdomain, nu.AllowFrom.ValidEntries()}
+		regStruct := RegResponse{nu.Username.String(), nu.Password, nu.Subdomain + "." + h.config.DNS.Domain, nu.Subdomain, nu.AllowFrom.ValidEntries()}
 		regStatus = http.StatusCreated
 		reg, err = json.Marshal(regStruct)
 		if err != nil {

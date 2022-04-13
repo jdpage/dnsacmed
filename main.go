@@ -6,44 +6,76 @@ package main
 import (
 	"crypto/tls"
 	"flag"
+	"fmt"
 	stdlog "log"
 	"net/http"
 	"os"
 	"strings"
 	"syscall"
 
+	"github.com/knadh/koanf"
+	"github.com/knadh/koanf/parsers/toml"
+	"github.com/knadh/koanf/providers/confmap"
+	"github.com/knadh/koanf/providers/env"
+	"github.com/knadh/koanf/providers/file"
 	log "github.com/sirupsen/logrus"
 )
 
+var defaultConfig = map[string]interface{}{
+	"dns.listen":               "0.0.0.0:53",
+	"dns.protocol":             "both",
+	"dns.records":              []string{},
+	"api.listen":               "0.0.0.0:80",
+	"api.disable_registration": false,
+	"api.tls":                  false,
+	"api.use_header":           false,
+	"api.header_name":          "X-Forwarded-For",
+}
+
 func main() {
+	configPtr := flag.String("c", "", "config file location")
+	flag.Parse()
+
 	// Created files are not world writable
 	syscall.Umask(0077)
-	configPtr := flag.String("c", "/etc/dnsacmed/config.cfg", "config file location")
-	flag.Parse()
-	// Read global config
-	var config DNSConfig
-	var err error
-	if fileIsAccessible(*configPtr) {
-		log.WithFields(log.Fields{"file": *configPtr}).Info("Using config file")
-		config, err = readConfig(*configPtr)
-	} else if fileIsAccessible("./config.cfg") {
-		log.WithFields(log.Fields{"file": "./config.cfg"}).Info("Using config file")
-		config, err = readConfig("./config.cfg")
-	} else {
-		log.Errorf("Configuration file not found.")
-		os.Exit(1)
-	}
-	if err != nil {
-		log.Errorf("Encountered an error while trying to read configuration file:  %s", err)
-		os.Exit(1)
+
+	// Load defaults
+	k := koanf.New(".")
+	if err := k.Load(confmap.Provider(defaultConfig, "."), nil); err != nil {
+		panic(err)
 	}
 
-	setupLogging(config.Logconfig.Format, config.Logconfig.Level)
+	// Read in the global config
+	if *configPtr != "" {
+		if err := k.Load(file.Provider(*configPtr), toml.Parser()); err != nil {
+			panic(err)
+		}
+	} else {
+		if err := k.Load(file.Provider("/etc/dnsacmed/config.toml"), toml.Parser()); err != nil {
+			k.Load(file.Provider("config.toml"), toml.Parser())
+		}
+	}
+
+	// Read in environment variables
+	k.Load(env.Provider("DNSACMED_", ".", func(s string) string {
+		return strings.Replace(strings.ToLower(
+			strings.TrimPrefix(s, "DNSACMED_")), "_", ".", -1)
+	}), nil)
+
+	if err := checkConfig(k); err != nil {
+		panic(err)
+	}
+
+	var config Config
+	if err := k.UnmarshalWithConf("", &config, koanf.UnmarshalConf{Tag: "json"}); err != nil {
+		panic(fmt.Errorf("Error unmarshaling config file: %w", err))
+	}
+
+	setupLogging(config.Logging.Format, config.Logging.Level)
 
 	// Open database
 	db := new(acmedb)
-	err = db.Init(config.Database.Engine, config.Database.Connection)
-	if err != nil {
+	if err := db.Init(config.Database.Engine, config.Database.Connection); err != nil {
 		log.Errorf("Could not open database [%v]", err)
 		os.Exit(1)
 	} else {
@@ -56,21 +88,21 @@ func main() {
 
 	// DNS server
 	dnsservers := make([]*DNSServer, 0)
-	if strings.HasPrefix(config.General.Proto, "both") {
+	if strings.HasPrefix(config.DNS.Proto, "both") {
 		// Handle the case where DNS server should be started for both udp and tcp
 		udpProto := "udp"
 		tcpProto := "tcp"
-		if strings.HasSuffix(config.General.Proto, "4") {
+		if strings.HasSuffix(config.DNS.Proto, "4") {
 			udpProto += "4"
 			tcpProto += "4"
-		} else if strings.HasSuffix(config.General.Proto, "6") {
+		} else if strings.HasSuffix(config.DNS.Proto, "6") {
 			udpProto += "6"
 			tcpProto += "6"
 		}
-		dnsServerUDP := NewDNSServer(db, config.General.Listen, udpProto, config.General.Domain)
+		dnsServerUDP := NewDNSServer(db, config.DNS.Listen, udpProto, config.DNS.Domain)
 		dnsservers = append(dnsservers, dnsServerUDP)
-		dnsServerUDP.ParseRecords(config)
-		dnsServerTCP := NewDNSServer(db, config.General.Listen, tcpProto, config.General.Domain)
+		dnsServerUDP.ParseRecords(&config)
+		dnsServerTCP := NewDNSServer(db, config.DNS.Listen, tcpProto, config.DNS.Domain)
 		dnsservers = append(dnsservers, dnsServerTCP)
 		// No need to parse records from config again
 		dnsServerTCP.Domains = dnsServerUDP.Domains
@@ -78,9 +110,9 @@ func main() {
 		go dnsServerUDP.Start(errChan)
 		go dnsServerTCP.Start(errChan)
 	} else {
-		dnsServer := NewDNSServer(db, config.General.Listen, config.General.Proto, config.General.Domain)
+		dnsServer := NewDNSServer(db, config.DNS.Listen, config.DNS.Proto, config.DNS.Domain)
 		dnsservers = append(dnsservers, dnsServer)
-		dnsServer.ParseRecords(config)
+		dnsServer.ParseRecords(&config)
 		go dnsServer.Start(errChan)
 	}
 
@@ -89,14 +121,13 @@ func main() {
 
 	// block waiting for error
 	for {
-		err = <-errChan
-		if err != nil {
+		if err := <-errChan; err != nil {
 			log.Fatal(err)
 		}
 	}
 }
 
-func startHTTPAPI(errChan chan error, config *DNSConfig, db database, dnsservers []*DNSServer) {
+func startHTTPAPI(errChan chan error, config *Config, db database, dnsservers []*DNSServer) {
 	// Setup http logger
 	logger := log.New()
 	logwriter := logger.Writer()
@@ -114,27 +145,24 @@ func startHTTPAPI(errChan chan error, config *DNSConfig, db database, dnsservers
 	})
 	api.HandleFunc("/health", healthCheck)
 
-	host := config.API.IP + ":" + config.API.Port
-
 	// TLS specific general settings
 	cfg := &tls.Config{
 		MinVersion: tls.VersionTLS12,
 	}
 
 	var err error
-	switch config.API.TLS {
-	case "cert":
+	if config.API.TLS {
 		srv := &http.Server{
-			Addr:      host,
+			Addr:      config.API.Listen,
 			Handler:   api,
 			TLSConfig: cfg,
 			ErrorLog:  stdlog.New(logwriter, "", 0),
 		}
-		log.WithFields(log.Fields{"host": host}).Info("Listening HTTPS")
+		log.WithFields(log.Fields{"host": config.API.Listen}).Info("Listening HTTPS")
 		err = srv.ListenAndServeTLS(config.API.TLSCertFullchain, config.API.TLSCertPrivkey)
-	default:
-		log.WithFields(log.Fields{"host": host}).Info("Listening HTTP")
-		err = http.ListenAndServe(host, api)
+	} else {
+		log.WithFields(log.Fields{"host": config.API.Listen}).Info("Listening HTTP")
+		err = http.ListenAndServe(config.API.Listen, api)
 	}
 	if err != nil {
 		errChan <- err

@@ -80,15 +80,15 @@ func TestQuestionDBError(t *testing.T) {
 func TestParse(t *testing.T) {
 	dnsServer := NewDNSServer(nil, "", "", "")
 
-	var testcfg = DNSConfig{
-		General: general{
+	var testcfg = Config{
+		DNS: dnsConfig{
 			Domain:        ")",
-			Nsname:        "ns1.auth.example.org",
-			Nsadmin:       "admin.example.org",
+			NSName:        "ns1.auth.example.org",
+			NSAdmin:       "admin.example.org",
 			StaticRecords: []string{},
 		},
 	}
-	dnsServer.ParseRecords(testcfg)
+	dnsServer.ParseRecords(&testcfg)
 	if !loggerHasEntryWithMessage("Error while adding SOA record") {
 		t.Errorf("Expected SOA parsing to return error, but did not find one")
 	}

@@ -2,14 +2,12 @@ package main
 
 import (
 	"crypto/rand"
-	"errors"
 	"fmt"
 	"math/big"
-	"os"
 	"regexp"
 	"strings"
 
-	"github.com/BurntSushi/toml"
+	"github.com/knadh/koanf"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -17,39 +15,19 @@ func jsonError(message string) []byte {
 	return []byte(fmt.Sprintf("{\"error\": \"%s\"}", message))
 }
 
-func fileIsAccessible(fname string) bool {
-	_, err := os.Stat(fname)
-	if err != nil {
-		return false
+func checkConfig(k *koanf.Koanf) error {
+	for _, key := range []string{
+		"dns.domain",
+		"dns.nsname",
+		"dns.nsadmin",
+		"database.engine",
+		"database.connection",
+	} {
+		if !k.Exists(key) {
+			return fmt.Errorf("Option %s is required but not provided", key)
+		}
 	}
-	f, err := os.Open(fname)
-	if err != nil {
-		return false
-	}
-	f.Close()
-	return true
-}
-
-func readConfig(fname string) (DNSConfig, error) {
-	var conf DNSConfig
-	_, err := toml.DecodeFile(fname, &conf)
-	if err != nil {
-		// Return with config file parsing errors from toml package
-		return conf, err
-	}
-	return prepareConfig(conf)
-}
-
-// prepareConfig checks that mandatory values exist, and can be used to set default values in the future
-func prepareConfig(conf DNSConfig) (DNSConfig, error) {
-	if conf.Database.Engine == "" {
-		return conf, errors.New("missing database configuration option \"engine\"")
-	}
-	if conf.Database.Connection == "" {
-		return conf, errors.New("missing database configuration option \"connection\"")
-	}
-
-	return conf, nil
+	return nil
 }
 
 func sanitizeString(s string) string {

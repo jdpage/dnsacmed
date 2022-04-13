@@ -1,10 +1,11 @@
-[general]
+[dns]
 # DNS interface. Note that systemd-resolved may reserve port 53 on 127.0.0.53
 # In this case acme-dns will error out and you will need to define the listening interface
 # for example: listen = "127.0.0.1:53"
-listen = "127.0.0.1:53"
+#listen = "0.0.0.0:53"
+listen = "127.0.0.1:15353"
 # protocol, "both", "both4", "both6", "udp", "udp4", "udp6" or "tcp", "tcp4", "tcp6"
-protocol = "both"
+#protocol = "both"
 # domain name to serve the requests off of
 domain = "auth.example.org"
 # zone name server
@@ -24,32 +25,31 @@ records = [
 engine = "sqlite3"
 # Connection string, filename for sqlite3 and postgres://$username:$password@$host/$db_name for postgres
 # Please note that the default Docker image uses path /var/lib/dnsacmed/dnsacmed.db for sqlite3
-connection = "/var/lib/dnsacmed/dnsacmed.db"
+#connection = "/var/lib/dnsacmed/dnsacmed.db"
+connection = "acme-dns.db"
 # connection = "postgres://user:password@localhost/acmedns_db"
 
 [api]
-# listen ip eg. 127.0.0.1
-ip = "0.0.0.0"
+# API listen interface
+#listen = "0.0.0.0:80"
+listen = "127.0.0.1:8080"
 # disable registration endpoint
-disable_registration = false
-# listen port, eg. 443 for default HTTPS
-port = "443"
-# possible values: "cert", "none"
-tls = "none"
-# only used if tls = "cert"
-tls_cert_privkey = "/etc/tls/example.org/privkey.pem"
-tls_cert_fullchain = "/etc/tls/example.org/fullchain.pem"
+#disable_registration = false
+#tls = false
+# only used if tls = true
+#tls_cert_privkey = "/etc/tls/example.org/privkey.pem"
+#tls_cert_fullchain = "/etc/tls/example.org/fullchain.pem"
 # use HTTP header to get the client ip
-use_header = false
+#use_header = false
 # header name to pull the ip address / list of ip addresses from
-header_name = "X-Forwarded-For"
+#header_name = "X-Forwarded-For"
 
-[logconfig]
+[logging]
 # logging level: "error", "warning", "info" or "debug"
-loglevel = "debug"
+level = "debug"
 # possible values: stdout, TODO file & integrations
-logtype = "stdout"
+type = "stdout"
 # file path for logfile TODO
 # logfile = "./dnsacmed.log"
 # format, either "json" or "text"
-logformat = "text"
+format = "text"

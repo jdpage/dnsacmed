@@ -2,10 +2,11 @@ package main
 
 import (
 	"fmt"
-	"github.com/miekg/dns"
-	log "github.com/sirupsen/logrus"
 	"strings"
 	"time"
+
+	"github.com/miekg/dns"
+	log "github.com/sirupsen/logrus"
 )
 
 // Records is a slice of ResourceRecords
@@ -49,8 +50,8 @@ func (d *DNSServer) Start(errorChannel chan error) {
 }
 
 // ParseRecords parses a slice of DNS record string
-func (d *DNSServer) ParseRecords(config DNSConfig) {
-	for _, v := range config.General.StaticRecords {
+func (d *DNSServer) ParseRecords(config *Config) {
+	for _, v := range config.DNS.StaticRecords {
 		rr, err := dns.NewRR(strings.ToLower(v))
 		if err != nil {
 			log.WithFields(log.Fields{"error": err.Error(), "rr": v}).Warning("Could not parse RR from config")
@@ -62,7 +63,7 @@ func (d *DNSServer) ParseRecords(config DNSConfig) {
 	// Create serial
 	serial := time.Now().Format("2006010215")
 	// Add SOA
-	SOAstring := fmt.Sprintf("%s. SOA %s. %s. %s 28800 7200 604800 86400", strings.ToLower(config.General.Domain), strings.ToLower(config.General.Nsname), strings.ToLower(config.General.Nsadmin), serial)
+	SOAstring := fmt.Sprintf("%s. SOA %s. %s. %s 28800 7200 604800 86400", strings.ToLower(config.DNS.Domain), strings.ToLower(config.DNS.NSName), strings.ToLower(config.DNS.NSAdmin), serial)
 	soarr, err := dns.NewRR(SOAstring)
 	if err != nil {
 		log.WithFields(log.Fields{"error": err.Error(), "soa": SOAstring}).Error("Error while adding SOA record")
