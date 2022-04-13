@@ -4,7 +4,6 @@
 package main
 
 import (
-	"context"
 	"crypto/tls"
 	"flag"
 	stdlog "log"
@@ -13,8 +12,6 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/caddyserver/certmagic"
-	legolog "github.com/go-acme/lego/v3/log"
 	"github.com/julienschmidt/httprouter"
 	"github.com/rs/cors"
 	log "github.com/sirupsen/logrus"
@@ -109,8 +106,6 @@ func startHTTPAPI(errChan chan error, config DNSConfig, dnsservers []*DNSServer)
 	// Setup logging for different dependencies to log with logrus
 	// Certmagic
 	stdlog.SetOutput(logwriter)
-	// Lego
-	legolog.Logger = logger
 
 	api := httprouter.New()
 	c := cors.New(cors.Options{
@@ -135,62 +130,9 @@ func startHTTPAPI(errChan chan error, config DNSConfig, dnsservers []*DNSServer)
 	cfg := &tls.Config{
 		MinVersion: tls.VersionTLS12,
 	}
-	provider := NewChallengeProvider(dnsservers)
-	storage := certmagic.FileStorage{Path: Config.API.ACMECacheDir}
 
-	// Set up certmagic for getting certificate for acme-dns api
-	certmagic.DefaultACME.DNS01Solver = &provider
-	certmagic.DefaultACME.Agreed = true
-	if Config.API.TLS == "letsencrypt" {
-		certmagic.DefaultACME.CA = certmagic.LetsEncryptProductionCA
-	} else {
-		certmagic.DefaultACME.CA = certmagic.LetsEncryptStagingCA
-	}
-	certmagic.DefaultACME.Email = Config.API.NotificationEmail
-	magicConf := certmagic.NewDefault()
-	magicConf.Storage = &storage
-	magicConf.DefaultServerName = Config.General.Domain
-
-	magicCache := certmagic.NewCache(certmagic.CacheOptions{
-		GetConfigForCert: func(cert certmagic.Certificate) (*certmagic.Config, error) {
-			return magicConf, nil
-		},
-	})
-
-	magic := certmagic.New(magicCache, *magicConf)
 	var err error
 	switch Config.API.TLS {
-	case "letsencryptstaging":
-		err = magic.ManageAsync(context.Background(), []string{Config.General.Domain})
-		if err != nil {
-			errChan <- err
-			return
-		}
-		cfg.GetCertificate = magic.GetCertificate
-
-		srv := &http.Server{
-			Addr:      host,
-			Handler:   c.Handler(api),
-			TLSConfig: cfg,
-			ErrorLog:  stdlog.New(logwriter, "", 0),
-		}
-		log.WithFields(log.Fields{"host": host, "domain": Config.General.Domain}).Info("Listening HTTPS")
-		err = srv.ListenAndServeTLS("", "")
-	case "letsencrypt":
-		err = magic.ManageAsync(context.Background(), []string{Config.General.Domain})
-		if err != nil {
-			errChan <- err
-			return
-		}
-		cfg.GetCertificate = magic.GetCertificate
-		srv := &http.Server{
-			Addr:      host,
-			Handler:   c.Handler(api),
-			TLSConfig: cfg,
-			ErrorLog:  stdlog.New(logwriter, "", 0),
-		}
-		log.WithFields(log.Fields{"host": host, "domain": Config.General.Domain}).Info("Listening HTTPS")
-		err = srv.ListenAndServeTLS("", "")
 	case "cert":
 		srv := &http.Server{
 			Addr:      host,
