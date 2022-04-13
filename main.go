@@ -23,7 +23,7 @@ import (
 func main() {
 	// Created files are not world writable
 	syscall.Umask(0077)
-	configPtr := flag.String("c", "/etc/acme-dns/config.cfg", "config file location")
+	configPtr := flag.String("c", "/etc/dnsacmed/config.cfg", "config file location")
 	flag.Parse()
 	// Read global config
 	var err error
