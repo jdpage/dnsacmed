@@ -7,7 +7,6 @@ import (
 	"crypto/tls"
 	"flag"
 	"fmt"
-	stdlog "log"
 	"net/http"
 	"os"
 	"strings"
@@ -18,7 +17,7 @@ import (
 	"github.com/knadh/koanf/providers/confmap"
 	"github.com/knadh/koanf/providers/env"
 	"github.com/knadh/koanf/providers/file"
-	log "github.com/sirupsen/logrus"
+	"go.uber.org/zap"
 )
 
 var defaultConfig = map[string]interface{}{
@@ -67,19 +66,29 @@ func main() {
 	}
 
 	var config Config
+	if k.String("logging.preset") == "development" {
+		config.Logging = zap.NewDevelopmentConfig()
+	} else {
+		config.Logging = zap.NewProductionConfig()
+	}
 	if err := k.UnmarshalWithConf("", &config, koanf.UnmarshalConf{Tag: "json"}); err != nil {
 		panic(fmt.Errorf("Error unmarshaling config file: %w", err))
 	}
 
-	setupLogging(config.Logging.Format, config.Logging.Level)
+	logger, err := config.Logging.Build()
+	if err != nil {
+		panic(err)
+	}
+	restoreLogger := zap.RedirectStdLog(logger)
+	defer restoreLogger()
 
 	// Open database
 	db := new(acmedb)
-	if err := db.Init(config.Database.Engine, config.Database.Connection); err != nil {
-		log.Errorf("Could not open database [%v]", err)
+	if err := db.Init(logger, config.Database.Engine, config.Database.Connection); err != nil {
+		logger.Fatal("Could not open database", zap.Error(err))
 		os.Exit(1)
 	} else {
-		log.Info("Connected to database")
+		logger.Info("Connected to database")
 	}
 	defer db.Close()
 
@@ -99,10 +108,10 @@ func main() {
 			udpProto += "6"
 			tcpProto += "6"
 		}
-		dnsServerUDP := NewDNSServer(db, config.DNS.Listen, udpProto, config.DNS.Domain)
+		dnsServerUDP := NewDNSServer(logger, db, config.DNS.Listen, udpProto, config.DNS.Domain)
 		dnsservers = append(dnsservers, dnsServerUDP)
 		dnsServerUDP.ParseRecords(&config)
-		dnsServerTCP := NewDNSServer(db, config.DNS.Listen, tcpProto, config.DNS.Domain)
+		dnsServerTCP := NewDNSServer(logger, db, config.DNS.Listen, tcpProto, config.DNS.Domain)
 		dnsservers = append(dnsservers, dnsServerTCP)
 		// No need to parse records from config again
 		dnsServerTCP.Domains = dnsServerUDP.Domains
@@ -110,59 +119,58 @@ func main() {
 		go dnsServerUDP.Start(errChan)
 		go dnsServerTCP.Start(errChan)
 	} else {
-		dnsServer := NewDNSServer(db, config.DNS.Listen, config.DNS.Proto, config.DNS.Domain)
+		dnsServer := NewDNSServer(logger, db, config.DNS.Listen, config.DNS.Proto, config.DNS.Domain)
 		dnsservers = append(dnsservers, dnsServer)
 		dnsServer.ParseRecords(&config)
 		go dnsServer.Start(errChan)
 	}
 
 	// HTTP API
-	go startHTTPAPI(errChan, &config, db, dnsservers)
+	go startHTTPAPI(errChan, &config, logger, db, dnsservers)
 
 	// block waiting for error
 	for {
 		if err := <-errChan; err != nil {
-			log.Fatal(err)
+			logger.Fatal("Error listening HTTP", zap.Error(err))
 		}
 	}
 }
 
-func startHTTPAPI(errChan chan error, config *Config, db database, dnsservers []*DNSServer) {
-	// Setup http logger
-	logger := log.New()
-	logwriter := logger.Writer()
-	defer logwriter.Close()
-	// Setup logging for different dependencies to log with logrus
-	// Certmagic
-	stdlog.SetOutput(logwriter)
-
+func startHTTPAPI(errChan chan error, config *Config, logger *zap.Logger, db database, dnsservers []*DNSServer) {
 	api := http.NewServeMux()
 	if !config.API.DisableRegistration {
-		api.Handle("/register", webRegisterHandler{config, db})
+		api.Handle("/register", webRegisterHandler{config, logger, db})
 	}
 	api.HandleFunc("/update", func(w http.ResponseWriter, r *http.Request) {
-		authMiddleware{config, db}.ServeHTTP(w, r, webUpdateHandler{db}.ServeHTTP)
+		authMiddleware{config, logger, db}.ServeHTTP(w, r, webUpdateHandler{logger, db}.ServeHTTP)
 	})
 	api.HandleFunc("/health", healthCheck)
 
-	// TLS specific general settings
-	cfg := &tls.Config{
-		MinVersion: tls.VersionTLS12,
+	errorLog, err := zap.NewStdLogAt(logger, zap.ErrorLevel)
+	if err != nil {
+		errChan <- err
+		return
 	}
 
-	var err error
 	if config.API.TLS {
 		srv := &http.Server{
-			Addr:      config.API.Listen,
-			Handler:   api,
-			TLSConfig: cfg,
-			ErrorLog:  stdlog.New(logwriter, "", 0),
+			Addr:    config.API.Listen,
+			Handler: api,
+			TLSConfig: &tls.Config{
+				MinVersion: tls.VersionTLS12,
+			},
+			ErrorLog: errorLog,
 		}
-		log.WithFields(log.Fields{"host": config.API.Listen}).Info("Listening HTTPS")
+		logger.Info("Listening HTTPS", zap.String("host", srv.Addr))
 		err = srv.ListenAndServeTLS(config.API.TLSCertFullchain, config.API.TLSCertPrivkey)
 	} else {
-		log.WithFields(log.Fields{"host": config.API.Listen}).Info("Listening HTTP")
-		err = http.ListenAndServe(config.API.Listen, api)
+		srv := &http.Server{
+			Addr:     config.API.Listen,
+			Handler:  api,
+			ErrorLog: errorLog,
+		}
+		logger.Info("Listening HTTP", zap.String("host", srv.Addr))
+		err = srv.ListenAndServe()
 	}
 	if err != nil {
 		errChan <- err

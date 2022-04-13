@@ -12,6 +12,8 @@ import (
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/gavv/httpexpect/v2"
 	"github.com/google/uuid"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zaptest"
 )
 
 // noAuth function to write ACMETxt model to context while not preforming any validation
@@ -45,16 +47,15 @@ func getExpect(t *testing.T, server *httptest.Server) *httpexpect.Expect {
 	})
 }
 
-func setupRouter(config *Config, db database, noauth bool) http.Handler {
+func setupRouter(config *Config, logger *zap.Logger, db database, noauth bool) http.Handler {
 	api := http.NewServeMux()
-
-	api.Handle("/register", webRegisterHandler{config, db})
+	api.Handle("/register", webRegisterHandler{config, logger, db})
 	api.HandleFunc("/health", healthCheck)
 	if noauth {
-		api.HandleFunc("/update", noAuth(webUpdateHandler{db}.ServeHTTP))
+		api.HandleFunc("/update", noAuth(webUpdateHandler{logger, db}.ServeHTTP))
 	} else {
 		api.HandleFunc("/update", func(w http.ResponseWriter, r *http.Request) {
-			authMiddleware{config, db}.ServeHTTP(w, r, webUpdateHandler{db}.ServeHTTP)
+			authMiddleware{config, logger, db}.ServeHTTP(w, r, webUpdateHandler{logger, db}.ServeHTTP)
 		})
 	}
 	return api
@@ -62,8 +63,9 @@ func setupRouter(config *Config, db database, noauth bool) http.Handler {
 
 func TestApiRegister(t *testing.T) {
 	config := setupConfig()
-	db := setupDB(config)
-	router := setupRouter(config, db, false)
+	logger := zaptest.NewLogger(t)
+	db := setupDB(config, logger)
+	router := setupRouter(config, logger, db, false)
 	server := httptest.NewServer(router)
 	defer server.Close()
 	e := getExpect(t, server)
@@ -101,8 +103,9 @@ func TestApiRegister(t *testing.T) {
 
 func TestApiRegisterBadAllowFrom(t *testing.T) {
 	config := setupConfig()
-	db := setupDB(config)
-	router := setupRouter(config, db, false)
+	logger := zaptest.NewLogger(t)
+	db := setupDB(config, logger)
+	router := setupRouter(config, logger, db, false)
 	server := httptest.NewServer(router)
 	defer server.Close()
 	e := getExpect(t, server)
@@ -132,8 +135,9 @@ func TestApiRegisterBadAllowFrom(t *testing.T) {
 
 func TestApiRegisterMalformedJSON(t *testing.T) {
 	config := setupConfig()
-	db := setupDB(config)
-	router := setupRouter(config, db, false)
+	logger := zaptest.NewLogger(t)
+	db := setupDB(config, logger)
+	router := setupRouter(config, logger, db, false)
 	server := httptest.NewServer(router)
 	defer server.Close()
 	e := getExpect(t, server)
@@ -161,8 +165,9 @@ func TestApiRegisterMalformedJSON(t *testing.T) {
 
 func TestApiRegisterWithMockDB(t *testing.T) {
 	config := setupConfig()
-	db := setupDB(config)
-	router := setupRouter(config, db, false)
+	logger := zaptest.NewLogger(t)
+	db := setupDB(config, logger)
+	router := setupRouter(config, logger, db, false)
 	server := httptest.NewServer(router)
 	defer server.Close()
 	e := getExpect(t, server)
@@ -185,8 +190,9 @@ func TestApiUpdateWithInvalidSubdomain(t *testing.T) {
 		"txt":       ""}
 
 	config := setupConfig()
-	db := setupDB(config)
-	router := setupRouter(config, db, false)
+	logger := zaptest.NewLogger(t)
+	db := setupDB(config, logger)
+	router := setupRouter(config, logger, db, false)
 	server := httptest.NewServer(router)
 	defer server.Close()
 	e := getExpect(t, server)
@@ -217,8 +223,9 @@ func TestApiUpdateWithInvalidTxt(t *testing.T) {
 		"txt":       ""}
 
 	config := setupConfig()
-	db := setupDB(config)
-	router := setupRouter(config, db, false)
+	logger := zaptest.NewLogger(t)
+	db := setupDB(config, logger)
+	router := setupRouter(config, logger, db, false)
 	server := httptest.NewServer(router)
 	defer server.Close()
 	e := getExpect(t, server)
@@ -243,8 +250,9 @@ func TestApiUpdateWithInvalidTxt(t *testing.T) {
 
 func TestApiUpdateWithoutCredentials(t *testing.T) {
 	config := setupConfig()
-	db := setupDB(config)
-	router := setupRouter(config, db, false)
+	logger := zaptest.NewLogger(t)
+	db := setupDB(config, logger)
+	router := setupRouter(config, logger, db, false)
 	server := httptest.NewServer(router)
 	defer server.Close()
 	e := getExpect(t, server)
@@ -263,8 +271,9 @@ func TestApiUpdateWithCredentials(t *testing.T) {
 		"txt":       ""}
 
 	config := setupConfig()
-	db := setupDB(config)
-	router := setupRouter(config, db, false)
+	logger := zaptest.NewLogger(t)
+	db := setupDB(config, logger)
+	router := setupRouter(config, logger, db, false)
 	server := httptest.NewServer(router)
 	defer server.Close()
 	e := getExpect(t, server)
@@ -298,8 +307,9 @@ func TestApiUpdateWithCredentialsMockDB(t *testing.T) {
 	updateJSON["txt"] = validTxtData
 
 	config := setupConfig()
-	db := setupDB(config)
-	router := setupRouter(config, db, true)
+	logger := zaptest.NewLogger(t)
+	db := setupDB(config, logger)
+	router := setupRouter(config, logger, db, true)
 	server := httptest.NewServer(router)
 	defer server.Close()
 	e := getExpect(t, server)
@@ -321,8 +331,9 @@ func TestApiManyUpdateWithCredentials(t *testing.T) {
 
 	config := setupConfig()
 	config.API.UseHeader = true
-	db := setupDB(config)
-	router := setupRouter(config, db, false)
+	logger := zaptest.NewLogger(t)
+	db := setupDB(config, logger)
+	router := setupRouter(config, logger, db, false)
 	server := httptest.NewServer(router)
 	defer server.Close()
 	// User without defined CIDR masks
@@ -382,8 +393,9 @@ func TestApiManyUpdateWithIpCheckHeaders(t *testing.T) {
 	config := setupConfig()
 	// Use header checks from default header (X-Forwarded-For)
 	config.API.UseHeader = true
-	db := setupDB(config)
-	router := setupRouter(config, db, false)
+	logger := zaptest.NewLogger(t)
+	db := setupDB(config, logger)
+	router := setupRouter(config, logger, db, false)
 	server := httptest.NewServer(router)
 	defer server.Close()
 	e := getExpect(t, server)
@@ -431,7 +443,7 @@ func TestApiManyUpdateWithIpCheckHeaders(t *testing.T) {
 }
 
 func TestApiHealthCheck(t *testing.T) {
-	router := setupRouter(setupConfig(), nil, false)
+	router := setupRouter(setupConfig(), zaptest.NewLogger(t), nil, false)
 	server := httptest.NewServer(router)
 	defer server.Close()
 	e := getExpect(t, server)

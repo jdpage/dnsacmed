@@ -5,7 +5,7 @@ import (
 	"net"
 
 	"github.com/google/uuid"
-	log "github.com/sirupsen/logrus"
+	"go.uber.org/zap"
 )
 
 // ACMETxt is the default structure for the user controlled record
@@ -52,13 +52,13 @@ func (c *cidrslice) ValidEntries() []string {
 }
 
 // Check if IP belongs to an allowed net
-func (a ACMETxt) allowedFrom(ip string) bool {
+func (a ACMETxt) allowedFrom(logger *zap.Logger, ip string) bool {
 	remoteIP := net.ParseIP(ip)
 	// Range not limited
 	if len(a.AllowFrom.ValidEntries()) == 0 {
 		return true
 	}
-	log.WithFields(log.Fields{"ip": remoteIP}).Debug("Checking if update is permitted from IP")
+	logger.Debug("Checking if update is permitted from IP", zap.Any("ip", remoteIP))
 	for _, v := range a.AllowFrom.ValidEntries() {
 		_, vnet, _ := net.ParseCIDR(v)
 		if vnet.Contains(remoteIP) {
@@ -70,13 +70,13 @@ func (a ACMETxt) allowedFrom(ip string) bool {
 
 // Go through list (most likely from headers) to check for the IP.
 // Reason for this is that some setups use reverse proxy in front of acme-dns
-func (a ACMETxt) allowedFromList(ips []string) bool {
+func (a ACMETxt) allowedFromList(logger *zap.Logger, ips []string) bool {
 	if len(ips) == 0 {
 		// If no IP provided, check if no whitelist present (everyone has access)
-		return a.allowedFrom("")
+		return a.allowedFrom(logger, "")
 	}
 	for _, v := range ips {
-		if a.allowedFrom(v) {
+		if a.allowedFrom(logger, v) {
 			return true
 		}
 	}

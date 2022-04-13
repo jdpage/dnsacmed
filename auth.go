@@ -7,7 +7,7 @@ import (
 	"net"
 	"net/http"
 
-	log "github.com/sirupsen/logrus"
+	"go.uber.org/zap"
 )
 
 type key int
@@ -18,6 +18,7 @@ const ACMETxtKey key = 0
 // Auth middleware for update request
 type authMiddleware struct {
 	config *Config
+	logger *zap.Logger
 	db     database
 }
 
@@ -30,18 +31,18 @@ func (m authMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Request, next h
 			dec := json.NewDecoder(r.Body)
 			err = dec.Decode(&postData)
 			if err != nil {
-				log.WithFields(log.Fields{"error": "json_error", "string": err.Error()}).Error("Decode error")
+				m.logger.Error("JSON decode error", zap.Error(err))
 			}
 			if user.Subdomain == postData.Subdomain {
 				userOK = true
 			} else {
-				log.WithFields(log.Fields{"error": "subdomain_mismatch", "name": postData.Subdomain, "expected": user.Subdomain}).Error("Subdomain mismatch")
+				m.logger.Error("Subdomain mismatch", zap.String("error", "subdomain_mismatch"), zap.String("name", postData.Subdomain), zap.String("expected", user.Subdomain))
 			}
 		} else {
-			log.WithFields(log.Fields{"error": "ip_unauthorized"}).Error("Update not allowed from IP")
+			m.logger.Error("Update not allowed from IP", zap.String("error", "ip_unauthorized"))
 		}
 	} else {
-		log.WithFields(log.Fields{"error": err.Error()}).Error("Error while trying to get user")
+		m.logger.Error("Error while trying to get user", zap.Error(err))
 	}
 	if userOK {
 		// Set user info to the decoded ACMETxt object
@@ -67,7 +68,7 @@ func (m authMiddleware) getUserFromRequest(r *http.Request) (ACMETxt, error) {
 	if validKey(passwd) {
 		dbuser, err := m.db.GetByUsername(username)
 		if err != nil {
-			log.WithFields(log.Fields{"error": err.Error()}).Error("Error while trying to get user")
+			m.logger.Error("While trying to get user", zap.Error(err))
 			// To protect against timed side channel (never gonna give you up)
 			correctPassword(passwd, "$2a$10$8JEFVNYYhLoBysjAxe2yBuXrkDojBQBkVpXEQgyQyjn43SvJ4vL36")
 
@@ -84,12 +85,12 @@ func (m authMiddleware) getUserFromRequest(r *http.Request) (ACMETxt, error) {
 func (m authMiddleware) updateAllowedFromIP(r *http.Request, user ACMETxt) bool {
 	if m.config.API.UseHeader {
 		ips := getIPListFromHeader(r.Header.Get(m.config.API.HeaderName))
-		return user.allowedFromList(ips)
+		return user.allowedFromList(m.logger, ips)
 	}
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
-		log.WithFields(log.Fields{"error": err.Error(), "remoteaddr": r.RemoteAddr}).Error("Error while parsing remote address")
+		m.logger.Error("While parsing remote address", zap.Error(err), zap.String("remoteaddr", r.RemoteAddr))
 		host = ""
 	}
-	return user.allowedFrom(host)
+	return user.allowedFrom(m.logger, host)
 }

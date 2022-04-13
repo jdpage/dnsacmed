@@ -9,6 +9,10 @@ import (
 
 	"github.com/erikstmartin/go-testdb"
 	"github.com/miekg/dns"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
+	"go.uber.org/zap/zaptest"
+	"go.uber.org/zap/zaptest/observer"
 )
 
 type resolver struct {
@@ -50,8 +54,9 @@ func hasExpectedTXTAnswer(answer []dns.RR, cmpTXT string) error {
 
 func TestQuestionDBError(t *testing.T) {
 	config := setupConfig()
-	db := setupDB(config)
-	dnsServer, stop := setupDNSServer(config, db)
+	logger := zaptest.NewLogger(t)
+	db := setupDB(config, logger)
+	dnsServer, stop := setupDNSServer(config, logger, db)
 	defer stop()
 
 	testdb.SetQueryWithArgsFunc(func(query string, args []driver.Value) (result driver.Rows, err error) {
@@ -78,7 +83,12 @@ func TestQuestionDBError(t *testing.T) {
 }
 
 func TestParse(t *testing.T) {
-	dnsServer := NewDNSServer(nil, "", "", "")
+	observer, logs := observer.New(zap.ErrorLevel)
+	logger := zaptest.NewLogger(t, zaptest.WrapOptions(zap.WrapCore(func(c zapcore.Core) zapcore.Core {
+		return zapcore.NewTee(c, observer)
+	})))
+
+	dnsServer := NewDNSServer(logger, nil, "", "", "")
 
 	var testcfg = Config{
 		DNS: dnsConfig{
@@ -89,14 +99,15 @@ func TestParse(t *testing.T) {
 		},
 	}
 	dnsServer.ParseRecords(&testcfg)
-	if !loggerHasEntryWithMessage("Error while adding SOA record") {
+	if logs.FilterMessage("While adding SOA record").Len() == -1 {
 		t.Errorf("Expected SOA parsing to return error, but did not find one")
 	}
 }
 
 func TestResolveA(t *testing.T) {
 	config := setupConfig()
-	_, stop := setupDNSServer(config, nil)
+	logger := zaptest.NewLogger(t)
+	_, stop := setupDNSServer(config, logger, nil)
 	defer stop()
 
 	resolv := resolver{server: "127.0.0.1:15353"}
@@ -117,7 +128,8 @@ func TestResolveA(t *testing.T) {
 
 func TestEDNS(t *testing.T) {
 	config := setupConfig()
-	_, stop := setupDNSServer(config, nil)
+	logger := zaptest.NewLogger(t)
+	_, stop := setupDNSServer(config, logger, nil)
 	defer stop()
 
 	resolv := resolver{server: "127.0.0.1:15353"}
@@ -129,7 +141,8 @@ func TestEDNS(t *testing.T) {
 
 func TestEDNSA(t *testing.T) {
 	config := setupConfig()
-	_, stop := setupDNSServer(config, nil)
+	logger := zaptest.NewLogger(t)
+	_, stop := setupDNSServer(config, logger, nil)
 	defer stop()
 
 	msg := new(dns.Msg)
@@ -153,7 +166,8 @@ func TestEDNSA(t *testing.T) {
 
 func TestEDNSBADVERS(t *testing.T) {
 	config := setupConfig()
-	_, stop := setupDNSServer(config, nil)
+	logger := zaptest.NewLogger(t)
+	_, stop := setupDNSServer(config, logger, nil)
 	defer stop()
 
 	msg := new(dns.Msg)
@@ -177,7 +191,8 @@ func TestEDNSBADVERS(t *testing.T) {
 
 func TestResolveCNAME(t *testing.T) {
 	config := setupConfig()
-	_, stop := setupDNSServer(config, nil)
+	logger := zaptest.NewLogger(t)
+	_, stop := setupDNSServer(config, logger, nil)
 	defer stop()
 
 	resolv := resolver{server: "127.0.0.1:15353"}
@@ -199,7 +214,8 @@ func TestResolveCNAME(t *testing.T) {
 
 func TestAuthoritative(t *testing.T) {
 	config := setupConfig()
-	_, stop := setupDNSServer(config, nil)
+	logger := zaptest.NewLogger(t)
+	_, stop := setupDNSServer(config, logger, nil)
 	defer stop()
 
 	resolv := resolver{server: "127.0.0.1:15353"}
@@ -227,8 +243,9 @@ func TestAuthoritative(t *testing.T) {
 
 func TestResolveTXT(t *testing.T) {
 	config := setupConfig()
-	db := setupDB(config)
-	_, stop := setupDNSServer(config, db)
+	logger := zaptest.NewLogger(t)
+	db := setupDB(config, logger)
+	_, stop := setupDNSServer(config, logger, db)
 	defer stop()
 
 	resolv := resolver{server: "127.0.0.1:15353"}
@@ -293,7 +310,8 @@ func TestResolveTXT(t *testing.T) {
 
 func TestCaseInsensitiveResolveA(t *testing.T) {
 	config := setupConfig()
-	_, stop := setupDNSServer(config, nil)
+	logger := zaptest.NewLogger(t)
+	_, stop := setupDNSServer(config, logger, nil)
 	defer stop()
 
 	resolv := resolver{server: "127.0.0.1:15353"}
@@ -309,7 +327,8 @@ func TestCaseInsensitiveResolveA(t *testing.T) {
 
 func TestCaseInsensitiveResolveSOA(t *testing.T) {
 	config := setupConfig()
-	_, stop := setupDNSServer(config, nil)
+	logger := zaptest.NewLogger(t)
+	_, stop := setupDNSServer(config, logger, nil)
 	defer stop()
 
 	resolv := resolver{server: "127.0.0.1:15353"}

@@ -12,7 +12,7 @@ import (
 	"github.com/google/uuid"
 	_ "github.com/lib/pq"
 	_ "github.com/mattn/go-sqlite3"
-	log "github.com/sirupsen/logrus"
+	"go.uber.org/zap"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -54,9 +54,10 @@ func getSQLiteStmt(s string) string {
 	return re.ReplaceAllString(s, "?")
 }
 
-func (d *acmedb) Init(engine string, connection string) error {
+func (d *acmedb) Init(logger *zap.Logger, engine string, connection string) error {
 	d.Lock()
 	defer d.Unlock()
+	d.logger = logger
 	d.engine = engine
 	db, err := sql.Open(engine, connection)
 	if err != nil {
@@ -115,7 +116,7 @@ func (d *acmedb) handleDBUpgradeTo1() error {
 	var subdomains []string
 	rows, err := d.DB.Query("SELECT Subdomain FROM records")
 	if err != nil {
-		log.WithFields(log.Fields{"error": err.Error()}).Error("Error in DB upgrade")
+		d.logger.Error("In DB upgrade", zap.Error(err))
 		return err
 	}
 	defer rows.Close()
@@ -123,14 +124,14 @@ func (d *acmedb) handleDBUpgradeTo1() error {
 		var subdomain string
 		err = rows.Scan(&subdomain)
 		if err != nil {
-			log.WithFields(log.Fields{"error": err.Error()}).Error("Error in DB upgrade while reading values")
+			d.logger.Error("In DB upgrade while reading values", zap.Error(err))
 			return err
 		}
 		subdomains = append(subdomains, subdomain)
 	}
 	err = rows.Err()
 	if err != nil {
-		log.WithFields(log.Fields{"error": err.Error()}).Error("Error in DB upgrade while inserting values")
+		d.logger.Error("In DB upgrade while inserting values", zap.Error(err))
 		return err
 	}
 	tx, err := d.DB.Begin()
@@ -148,7 +149,7 @@ func (d *acmedb) handleDBUpgradeTo1() error {
 			// Insert two rows for each subdomain to txt table
 			err = d.NewTXTValuesInTransaction(tx, subdomain)
 			if err != nil {
-				log.WithFields(log.Fields{"error": err.Error()}).Error("Error in DB upgrade while inserting values")
+				d.logger.Error("In DB upgrade while inserting values", zap.Error(err))
 				return err
 			}
 		}
@@ -199,7 +200,7 @@ func (d *acmedb) Register(afrom cidrslice) (ACMETxt, error) {
 	}
 	sm, err := tx.Prepare(regSQL)
 	if err != nil {
-		log.WithFields(log.Fields{"error": err.Error()}).Error("Database error in prepare")
+		d.logger.Error("Database error in prepare", zap.Error(err))
 		return a, errors.New("SQL error")
 	}
 	defer sm.Close()
@@ -236,7 +237,7 @@ func (d *acmedb) GetByUsername(u uuid.UUID) (ACMETxt, error) {
 
 	// It will only be one row though
 	for rows.Next() {
-		txt, err := getModelFromRow(rows)
+		txt, err := d.getModelFromRow(rows)
 		if err != nil {
 			return ACMETxt{}, err
 		}
@@ -310,7 +311,7 @@ func (d *acmedb) Update(a ACMETxtPost) error {
 	return nil
 }
 
-func getModelFromRow(r *sql.Rows) (ACMETxt, error) {
+func (d *acmedb) getModelFromRow(r *sql.Rows) (ACMETxt, error) {
 	txt := ACMETxt{}
 	afrom := ""
 	err := r.Scan(
@@ -319,13 +320,13 @@ func getModelFromRow(r *sql.Rows) (ACMETxt, error) {
 		&txt.Subdomain,
 		&afrom)
 	if err != nil {
-		log.WithFields(log.Fields{"error": err.Error()}).Error("Row scan error")
+		d.logger.Error("Row scan error", zap.Error(err))
 	}
 
 	cslice := cidrslice{}
 	err = json.Unmarshal([]byte(afrom), &cslice)
 	if err != nil {
-		log.WithFields(log.Fields{"error": err.Error()}).Error("JSON unmarshall error")
+		d.logger.Error("JSON unmarshal error", zap.Error(err))
 	}
 	txt.AllowFrom = cslice
 	return txt, err

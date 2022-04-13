@@ -45,11 +45,12 @@ listen = "127.0.0.1:8080"
 #header_name = "X-Forwarded-For"
 
 [logging]
+preset = "development"
 # logging level: "error", "warning", "info" or "debug"
-level = "debug"
+#level = "debug"
 # possible values: stdout, TODO file & integrations
-type = "stdout"
+#type = "stdout"
 # file path for logfile TODO
 # logfile = "./dnsacmed.log"
 # format, either "json" or "text"
-format = "text"
+#format = "text"

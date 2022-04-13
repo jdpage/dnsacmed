@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/erikstmartin/go-testdb"
+	"go.uber.org/zap/zaptest"
 )
 
 type testResult struct {
@@ -23,8 +24,10 @@ func (r testResult) RowsAffected() (int64, error) {
 }
 
 func TestDBInit(t *testing.T) {
+	logger := zaptest.NewLogger(t)
+
 	fakeDB := new(acmedb)
-	err := fakeDB.Init("notarealegine", "connectionstring")
+	err := fakeDB.Init(logger, "notarealegine", "connectionstring")
 	if err == nil {
 		t.Errorf("Was expecting error, didn't get one.")
 	}
@@ -35,7 +38,7 @@ func TestDBInit(t *testing.T) {
 	defer testdb.Reset()
 
 	errorDB := new(acmedb)
-	err = errorDB.Init("testdb", "")
+	err = errorDB.Init(logger, "testdb", "")
 	if err == nil {
 		t.Errorf("Was expecting DB initiation error but got none")
 	}
@@ -44,7 +47,8 @@ func TestDBInit(t *testing.T) {
 
 func TestRegisterNoCIDR(t *testing.T) {
 	config := setupConfig()
-	db := setupDB(config)
+	logger := zaptest.NewLogger(t)
+	db := setupDB(config, logger)
 
 	// Register tests
 	_, err := db.Register(cidrslice{})
@@ -55,6 +59,7 @@ func TestRegisterNoCIDR(t *testing.T) {
 
 func TestRegisterMany(t *testing.T) {
 	config := setupConfig()
+	logger := zaptest.NewLogger(t)
 	for _, test := range []struct {
 		name   string
 		input  cidrslice
@@ -65,7 +70,7 @@ func TestRegisterMany(t *testing.T) {
 		{"some invalid", cidrslice{"7.6.5.4/32", "invalid", "1.0.0.1/2"}, cidrslice{"7.6.5.4/32", "1.0.0.1/2"}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			db := setupDB(config)
+			db := setupDB(config, logger)
 			user, err := db.Register(test.input)
 			if err != nil {
 				t.Errorf("Got error from register method: [%v]", err)
@@ -86,7 +91,8 @@ func TestRegisterMany(t *testing.T) {
 
 func TestGetByUsername(t *testing.T) {
 	config := setupConfig()
-	db := setupDB(config)
+	logger := zaptest.NewLogger(t)
+	db := setupDB(config, logger)
 
 	// Create  reg to refer to
 	reg, err := db.Register(cidrslice{})
@@ -115,7 +121,8 @@ func TestGetByUsername(t *testing.T) {
 
 func TestPrepareErrors(t *testing.T) {
 	config := setupConfig()
-	db := setupDB(config)
+	logger := zaptest.NewLogger(t)
+	db := setupDB(config, logger)
 
 	reg, _ := db.Register(cidrslice{})
 	tdb, err := sql.Open("testdb", "")
@@ -140,7 +147,8 @@ func TestPrepareErrors(t *testing.T) {
 
 func TestQueryExecErrors(t *testing.T) {
 	config := setupConfig()
-	db := setupDB(config)
+	logger := zaptest.NewLogger(t)
+	db := setupDB(config, logger)
 
 	reg, _ := db.Register(cidrslice{})
 	testdb.SetExecWithArgsFunc(func(query string, args []driver.Value) (result driver.Result, err error) {
@@ -187,7 +195,8 @@ func TestQueryExecErrors(t *testing.T) {
 
 func TestQueryScanErrors(t *testing.T) {
 	config := setupConfig()
-	db := setupDB(config)
+	logger := zaptest.NewLogger(t)
+	db := setupDB(config, logger)
 	reg, _ := db.Register(cidrslice{})
 
 	testdb.SetExecWithArgsFunc(func(query string, args []driver.Value) (result driver.Result, err error) {
@@ -218,7 +227,8 @@ func TestQueryScanErrors(t *testing.T) {
 
 func TestBadDBValues(t *testing.T) {
 	config := setupConfig()
-	db := setupDB(config)
+	logger := zaptest.NewLogger(t)
+	db := setupDB(config, logger)
 	reg, _ := db.Register(cidrslice{})
 
 	testdb.SetQueryWithArgsFunc(func(query string, args []driver.Value) (result driver.Rows, err error) {
@@ -250,7 +260,8 @@ func TestBadDBValues(t *testing.T) {
 
 func TestGetTXTForDomain(t *testing.T) {
 	config := setupConfig()
-	db := setupDB(config)
+	logger := zaptest.NewLogger(t)
+	db := setupDB(config, logger)
 
 	// Create  reg to refer to
 	reg, err := db.Register(cidrslice{})
@@ -301,7 +312,8 @@ func TestGetTXTForDomain(t *testing.T) {
 
 func TestUpdate(t *testing.T) {
 	config := setupConfig()
-	db := setupDB(config)
+	logger := zaptest.NewLogger(t)
+	db := setupDB(config, logger)
 
 	// Create  reg to refer to
 	reg, err := db.Register(cidrslice{})

@@ -5,14 +5,15 @@ import (
 	"sync"
 
 	"github.com/google/uuid"
+	"go.uber.org/zap"
 )
 
 // DNSConfig holds the config structure
 type Config struct {
-	DNS      dnsConfig `json:"dns"`
-	Database dbConfig  `json:"database"`
-	API      apiConfig `json:"api"`
-	Logging  logConfig `json:"logging"`
+	DNS      dnsConfig  `json:"dns"`
+	Database dbConfig   `json:"database"`
+	API      apiConfig  `json:"api"`
+	Logging  zap.Config `json:"logging"`
 }
 
 // Config file general section
@@ -41,22 +42,15 @@ type apiConfig struct {
 	HeaderName          string `json:"header_name"`
 }
 
-// Logging config
-type logConfig struct {
-	Level   string `json:"level"`
-	Logtype string `json:"type"`
-	File    string `json:"file"`
-	Format  string `json:"format"`
-}
-
 type acmedb struct {
 	sync.Mutex
+	logger *zap.Logger
 	DB     *sql.DB
 	engine string
 }
 
 type database interface {
-	Init(string, string) error
+	Init(*zap.Logger, string, string) error
 	Register(cidrslice) (ACMETxt, error)
 	GetByUsername(uuid.UUID) (ACMETxt, error)
 	GetTXTForDomain(string) ([]string, error)

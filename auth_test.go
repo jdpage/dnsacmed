@@ -3,10 +3,15 @@ package main
 import (
 	"net/http"
 	"testing"
+
+	"go.uber.org/zap/zaptest"
 )
 
 func TestUpdateAllowedFromIP(t *testing.T) {
-	m := authMiddleware{config: &Config{API: apiConfig{UseHeader: false}}}
+	m := authMiddleware{
+		config: &Config{API: apiConfig{UseHeader: false}},
+		logger: zaptest.NewLogger(t),
+	}
 	userWithAllow := newACMETxt()
 	userWithAllow.AllowFrom = cidrslice{"192.168.1.2/32", "[::1]/128"}
 	userWithoutAllow := newACMETxt()

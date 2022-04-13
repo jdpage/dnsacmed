@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/miekg/dns"
-	log "github.com/sirupsen/logrus"
+	"go.uber.org/zap"
 )
 
 // Records is a slice of ResourceRecords
@@ -16,6 +16,7 @@ type Records struct {
 
 // DNSServer is the main struct for acme-dns DNS server
 type DNSServer struct {
+	logger          *zap.Logger
 	DB              database
 	Domain          string
 	Server          *dns.Server
@@ -25,8 +26,9 @@ type DNSServer struct {
 }
 
 // NewDNSServer parses the DNS records from config and returns a new DNSServer struct
-func NewDNSServer(db database, addr string, proto string, domain string) *DNSServer {
+func NewDNSServer(logger *zap.Logger, db database, addr string, proto string, domain string) *DNSServer {
 	var server DNSServer
+	server.logger = logger
 	server.Server = &dns.Server{Addr: addr, Net: proto}
 	if !strings.HasSuffix(domain, ".") {
 		domain = domain + "."
@@ -42,7 +44,7 @@ func NewDNSServer(db database, addr string, proto string, domain string) *DNSSer
 func (d *DNSServer) Start(errorChannel chan error) {
 	// DNS server part
 	dns.HandleFunc(".", d.handleRequest)
-	log.WithFields(log.Fields{"addr": d.Server.Addr, "proto": d.Server.Net}).Info("Listening DNS")
+	d.logger.Info("Listening DNS", zap.String("addr", d.Server.Addr), zap.String("proto", d.Server.Net))
 	err := d.Server.ListenAndServe()
 	if err != nil {
 		errorChannel <- err
@@ -54,7 +56,7 @@ func (d *DNSServer) ParseRecords(config *Config) {
 	for _, v := range config.DNS.StaticRecords {
 		rr, err := dns.NewRR(strings.ToLower(v))
 		if err != nil {
-			log.WithFields(log.Fields{"error": err.Error(), "rr": v}).Warning("Could not parse RR from config")
+			d.logger.Warn("Could not parse RR from config", zap.Error(err), zap.String("rr", v))
 			continue
 		}
 		// Add parsed RR
@@ -66,7 +68,7 @@ func (d *DNSServer) ParseRecords(config *Config) {
 	SOAstring := fmt.Sprintf("%s. SOA %s. %s. %s 28800 7200 604800 86400", strings.ToLower(config.DNS.Domain), strings.ToLower(config.DNS.NSName), strings.ToLower(config.DNS.NSAdmin), serial)
 	soarr, err := dns.NewRR(SOAstring)
 	if err != nil {
-		log.WithFields(log.Fields{"error": err.Error(), "soa": SOAstring}).Error("Error while adding SOA record")
+		d.logger.Error("While adding SOA record", zap.Error(err), zap.String("soa", SOAstring))
 	} else {
 		d.appendRR(soarr)
 		d.SOA = soarr
@@ -83,7 +85,7 @@ func (d *DNSServer) appendRR(rr dns.RR) {
 		drecs.Records = append(drecs.Records, rr)
 		d.Domains[addDomain] = drecs
 	}
-	log.WithFields(log.Fields{"recordtype": dns.TypeToString[rr.Header().Rrtype], "domain": addDomain}).Debug("Adding new record to domain")
+	d.logger.Debug("Adding new record to domain", zap.String("recordtype", dns.TypeToString[rr.Header().Rrtype]), zap.String("domain", addDomain))
 }
 
 func (d *DNSServer) handleRequest(w dns.ResponseWriter, r *dns.Msg) {
@@ -214,7 +216,7 @@ func (d *DNSServer) answer(q dns.Question) ([]dns.RR, int, bool, error) {
 		// Make sure that we return NOERROR if there were dynamic records for the domain
 		rcode = dns.RcodeSuccess
 	}
-	log.WithFields(log.Fields{"qtype": dns.TypeToString[q.Qtype], "domain": q.Name, "rcode": dns.RcodeToString[rcode]}).Debug("Answering question for domain")
+	d.logger.Debug("Answering question for domain", zap.String("qtype", dns.TypeToString[q.Qtype]), zap.String("domain", q.Name), zap.String("rcode", dns.RcodeToString[rcode]))
 	return r, rcode, authoritative, nil
 }
 
@@ -223,7 +225,7 @@ func (d *DNSServer) answerTXT(q dns.Question) ([]dns.RR, error) {
 	subdomain := sanitizeDomainQuestion(q.Name)
 	atxt, err := d.DB.GetTXTForDomain(subdomain)
 	if err != nil {
-		log.WithFields(log.Fields{"error": err.Error()}).Debug("Error while trying to get record")
+		d.logger.Error("While trying to get record", zap.Error(err))
 		return ra, err
 	}
 	for _, v := range atxt {

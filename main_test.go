@@ -3,15 +3,11 @@ package main
 import (
 	"flag"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"sync"
 
-	log "github.com/sirupsen/logrus"
-	logrustest "github.com/sirupsen/logrus/hooks/test"
+	"go.uber.org/zap"
 )
-
-var loghook = new(logrustest.Hook)
 
 var (
 	postgres = flag.Bool("postgres", false, "run integration tests against PostgreSQL")
@@ -25,28 +21,24 @@ var records = []string{
 	"ns2.auth.example.org. A 192.168.1.102",
 }
 
-func init() {
-	setupTestLogger()
-}
-
-func setupDB(config *Config) database {
+func setupDB(config *Config, logger *zap.Logger) database {
 	newDb := new(acmedb)
 	if *postgres {
 		config.Database.Engine = "postgres"
-		err := newDb.Init("postgres", "postgres://acmedns:acmedns@localhost/acmedns")
+		err := newDb.Init(logger, "postgres", "postgres://acmedns:acmedns@localhost/acmedns")
 		if err != nil {
 			fmt.Println("PostgreSQL integration tests expect database \"acmedns\" running in localhost, with username and password set to \"acmedns\"")
 			os.Exit(1)
 		}
 	} else {
 		config.Database.Engine = "sqlite3"
-		_ = newDb.Init("sqlite3", ":memory:")
+		_ = newDb.Init(logger, "sqlite3", ":memory:")
 	}
 	return newDb
 }
 
-func setupDNSServer(config *Config, db database) (*DNSServer, func() error) {
-	dnsserver := NewDNSServer(db, config.DNS.Listen, config.DNS.Proto, config.DNS.Domain)
+func setupDNSServer(config *Config, logger *zap.Logger, db database) (*DNSServer, func() error) {
+	dnsserver := NewDNSServer(logger, db, config.DNS.Listen, config.DNS.Proto, config.DNS.Domain)
 	dnsserver.ParseRecords(config)
 
 	// Make sure that the server has finished starting up before continuing
@@ -80,18 +72,4 @@ func setupConfig() *Config {
 			HeaderName: "X-Forwarded-For",
 		},
 	}
-}
-
-func setupTestLogger() {
-	log.SetOutput(ioutil.Discard)
-	log.AddHook(loghook)
-}
-
-func loggerHasEntryWithMessage(message string) bool {
-	for _, v := range loghook.Entries {
-		if v.Message == message {
-			return true
-		}
-	}
-	return false
 }

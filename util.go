@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/knadh/koanf"
-	log "github.com/sirupsen/logrus"
 )
 
 func jsonError(message string) []byte {
@@ -61,23 +60,6 @@ func sanitizeDomainQuestion(d string) string {
 		dom = dom[0:firstDot]
 	}
 	return dom
-}
-
-func setupLogging(format string, level string) {
-	if format == "json" {
-		log.SetFormatter(&log.JSONFormatter{})
-	}
-	switch level {
-	default:
-		log.SetLevel(log.WarnLevel)
-	case "debug":
-		log.SetLevel(log.DebugLevel)
-	case "info":
-		log.SetLevel(log.InfoLevel)
-	case "error":
-		log.SetLevel(log.ErrorLevel)
-	}
-	// TODO: file logging
 }
 
 func getIPListFromHeader(header string) []string {

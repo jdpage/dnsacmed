@@ -6,7 +6,7 @@ import (
 	"io/ioutil"
 	"net/http"
 
-	log "github.com/sirupsen/logrus"
+	"go.uber.org/zap"
 )
 
 // RegResponse is a struct for registration response JSON
@@ -20,6 +20,7 @@ type RegResponse struct {
 
 type webRegisterHandler struct {
 	config *Config
+	logger *zap.Logger
 	db     database
 }
 
@@ -64,16 +65,16 @@ func (h webRegisterHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		errstr := fmt.Sprintf("%v", err)
 		reg = jsonError(errstr)
 		regStatus = http.StatusInternalServerError
-		log.WithFields(log.Fields{"error": err.Error()}).Debug("Error in registration")
+		h.logger.Debug("Error in registration", zap.Error(err))
 	} else {
-		log.WithFields(log.Fields{"user": nu.Username.String()}).Debug("Created new user")
+		h.logger.Debug("Created new user", zap.Any("user", nu.Username))
 		regStruct := RegResponse{nu.Username.String(), nu.Password, nu.Subdomain + "." + h.config.DNS.Domain, nu.Subdomain, nu.AllowFrom.ValidEntries()}
 		regStatus = http.StatusCreated
 		reg, err = json.Marshal(regStruct)
 		if err != nil {
 			regStatus = http.StatusInternalServerError
 			reg = jsonError("json_error")
-			log.WithFields(log.Fields{"error": "json"}).Debug("Could not marshal JSON")
+			h.logger.Debug("Could not marshal JSON", zap.String("error", "json"))
 		}
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -82,7 +83,8 @@ func (h webRegisterHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 type webUpdateHandler struct {
-	db database
+	logger *zap.Logger
+	db     database
 }
 
 func (h webUpdateHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -97,27 +99,27 @@ func (h webUpdateHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Get user
 	a, ok := r.Context().Value(ACMETxtKey).(ACMETxt)
 	if !ok {
-		log.WithFields(log.Fields{"error": "context"}).Error("Context error")
+		h.logger.Error("Context error", zap.String("error", "context"))
 	}
 	// NOTE: An invalid subdomain should not happen - the auth handler should
 	// reject POSTs with an invalid subdomain before this handler. Reject any
 	// invalid subdomains anyway as a matter of caution.
 	if !validSubdomain(a.Subdomain) {
-		log.WithFields(log.Fields{"error": "subdomain", "subdomain": a.Subdomain, "txt": a.Value}).Debug("Bad update data")
+		h.logger.Debug("Bad update data", zap.String("error", "subdomain"), zap.String("subdomain", a.Subdomain), zap.String("txt", a.Value))
 		updStatus = http.StatusBadRequest
 		upd = jsonError("bad_subdomain")
 	} else if !validTXT(a.Value) {
-		log.WithFields(log.Fields{"error": "txt", "subdomain": a.Subdomain, "txt": a.Value}).Debug("Bad update data")
+		h.logger.Debug("Bad update data", zap.String("error", "txt"), zap.String("subdomain", a.Subdomain), zap.String("txt", a.Value))
 		updStatus = http.StatusBadRequest
 		upd = jsonError("bad_txt")
 	} else if validSubdomain(a.Subdomain) && validTXT(a.Value) {
 		err := h.db.Update(a.ACMETxtPost)
 		if err != nil {
-			log.WithFields(log.Fields{"error": err.Error()}).Debug("Error while trying to update record")
+			h.logger.Error("Error while trying to update record", zap.Error(err))
 			updStatus = http.StatusInternalServerError
 			upd = jsonError("db_error")
 		} else {
-			log.WithFields(log.Fields{"subdomain": a.Subdomain, "txt": a.Value}).Debug("TXT updated")
+			h.logger.Debug("TXT updated", zap.String("subdomain", a.Subdomain), zap.String("txt", a.Value))
 			updStatus = http.StatusOK
 			upd = []byte("{\"txt\": \"" + a.Value + "\"}")
 		}
