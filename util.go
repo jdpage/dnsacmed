@@ -2,8 +2,8 @@ package main
 
 import (
 	"crypto/rand"
+	"encoding/base64"
 	"fmt"
-	"math/big"
 	"regexp"
 	"strings"
 
@@ -41,16 +41,14 @@ func sanitizeIPv6addr(s string) string {
 	return re.ReplaceAllString(s, "")
 }
 
-func generatePassword(length int) string {
-	ret := make([]byte, length)
-	const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz1234567890-_"
-	alphalen := big.NewInt(int64(len(alphabet)))
-	for i := 0; i < length; i++ {
-		c, _ := rand.Int(rand.Reader, alphalen)
-		r := int(c.Int64())
-		ret[i] = alphabet[r]
+func generatePassword() (string, error) {
+	// 30 bytes -> 40 chr pw
+	bs := make([]byte, 30)
+	_, err := rand.Read(bs)
+	if err != nil {
+		return "", err
 	}
-	return string(ret)
+	return base64.URLEncoding.EncodeToString(bs), nil
 }
 
 func sanitizeDomainQuestion(d string) string {

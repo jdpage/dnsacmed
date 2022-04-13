@@ -12,9 +12,15 @@ func TestUpdateAllowedFromIP(t *testing.T) {
 		config: &Config{API: apiConfig{UseHeader: false}},
 		logger: zaptest.NewLogger(t),
 	}
-	userWithAllow := newACMETxt()
+	userWithAllow, err := newACMETxt()
+	if err != nil {
+		panic(err)
+	}
 	userWithAllow.AllowFrom = cidrslice{"192.168.1.2/32", "[::1]/128"}
-	userWithoutAllow := newACMETxt()
+	userWithoutAllow, err := newACMETxt()
+	if err != nil {
+		panic(err)
+	}
 
 	for i, test := range []struct {
 		remoteaddr string

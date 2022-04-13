@@ -83,11 +83,14 @@ func (a ACMETxt) allowedFromList(logger *zap.Logger, ips []string) bool {
 	return false
 }
 
-func newACMETxt() ACMETxt {
+func newACMETxt() (ACMETxt, error) {
 	var a = ACMETxt{}
-	password := generatePassword(40)
+	password, err := generatePassword()
+	if err != nil {
+		return a, err
+	}
 	a.Username = uuid.New()
 	a.Password = password
 	a.Subdomain = uuid.New().String()
-	return a
+	return a, nil
 }

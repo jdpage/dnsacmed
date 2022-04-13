@@ -185,7 +185,12 @@ func (d *acmedb) Register(afrom cidrslice) (ACMETxt, error) {
 		}
 		_ = tx.Commit()
 	}()
-	a := newACMETxt()
+	a, err := newACMETxt()
+	if err != nil {
+		d.logger.Error("While creating registration", zap.Error(err))
+		return a, fmt.Errorf("While creating registration: %w", err)
+	}
+
 	a.AllowFrom = cidrslice(afrom.ValidEntries())
 	passwordHash, err := bcrypt.GenerateFromPassword([]byte(a.Password), 10)
 	regSQL := `
