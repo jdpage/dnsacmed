@@ -12,7 +12,6 @@ require (
 	github.com/lib/pq v1.10.5
 	github.com/mattn/go-sqlite3 v1.14.12
 	github.com/miekg/dns v1.1.48
-	github.com/rs/cors v1.8.2
 	github.com/sirupsen/logrus v1.8.1
 	golang.org/x/crypto v0.0.0-20220411220226-7b82a4e95df4
 )

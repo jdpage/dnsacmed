@@ -38,7 +38,6 @@ func TestReadConfig(t *testing.T) {
 			DNSConfig{
 				General: general{
 					Listen: ":53",
-					Debug:  true,
 				},
 				API: httpapi{
 					Domain: "something.strange",

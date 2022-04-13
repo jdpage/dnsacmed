@@ -79,7 +79,6 @@ func TestParse(t *testing.T) {
 			Nsname:        "ns1.auth.example.org",
 			Nsadmin:       "admin.example.org",
 			StaticRecords: []string{},
-			Debug:         false,
 		},
 	}
 	dnsserver.ParseRecords(testcfg)

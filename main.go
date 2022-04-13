@@ -13,7 +13,6 @@ import (
 	"syscall"
 
 	"github.com/julienschmidt/httprouter"
-	"github.com/rs/cors"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -108,16 +107,6 @@ func startHTTPAPI(errChan chan error, config DNSConfig, dnsservers []*DNSServer)
 	stdlog.SetOutput(logwriter)
 
 	api := httprouter.New()
-	c := cors.New(cors.Options{
-		AllowedOrigins:     Config.API.CorsOrigins,
-		AllowedMethods:     []string{"GET", "POST"},
-		OptionsPassthrough: false,
-		Debug:              Config.General.Debug,
-	})
-	if Config.General.Debug {
-		// Logwriter for saner log output
-		c.Log = stdlog.New(logwriter, "", 0)
-	}
 	if !Config.API.DisableRegistration {
 		api.POST("/register", webRegisterPost)
 	}
@@ -136,7 +125,7 @@ func startHTTPAPI(errChan chan error, config DNSConfig, dnsservers []*DNSServer)
 	case "cert":
 		srv := &http.Server{
 			Addr:      host,
-			Handler:   c.Handler(api),
+			Handler:   api,
 			TLSConfig: cfg,
 			ErrorLog:  stdlog.New(logwriter, "", 0),
 		}
@@ -144,7 +133,7 @@ func startHTTPAPI(errChan chan error, config DNSConfig, dnsservers []*DNSServer)
 		err = srv.ListenAndServeTLS(Config.API.TLSCertFullchain, Config.API.TLSCertPrivkey)
 	default:
 		log.WithFields(log.Fields{"host": host}).Info("Listening HTTP")
-		err = http.ListenAndServe(host, c.Handler(api))
+		err = http.ListenAndServe(host, api)
 	}
 	if err != nil {
 		errChan <- err

@@ -12,7 +12,6 @@ import (
 	"github.com/gavv/httpexpect"
 	"github.com/google/uuid"
 	"github.com/julienschmidt/httprouter"
-	"github.com/rs/cors"
 )
 
 // noAuth function to write ACMETxt model to context while not preforming any validation
@@ -52,24 +51,17 @@ func setupRouter(debug bool, noauth bool) http.Handler {
 		Engine:     "sqlite3",
 		Connection: ":memory:"}
 	var httpapicfg = httpapi{
-		Domain:      "",
-		Port:        "8080",
-		TLS:         "none",
-		CorsOrigins: []string{"*"},
-		UseHeader:   true,
-		HeaderName:  "X-Forwarded-For",
+		Domain:     "",
+		Port:       "8080",
+		TLS:        "none",
+		UseHeader:  true,
+		HeaderName: "X-Forwarded-For",
 	}
 	var dnscfg = DNSConfig{
 		API:      httpapicfg,
 		Database: dbcfg,
 	}
 	Config = dnscfg
-	c := cors.New(cors.Options{
-		AllowedOrigins:     Config.API.CorsOrigins,
-		AllowedMethods:     []string{"GET", "POST"},
-		OptionsPassthrough: false,
-		Debug:              Config.General.Debug,
-	})
 	api.POST("/register", webRegisterPost)
 	api.GET("/health", healthCheck)
 	if noauth {
@@ -77,7 +69,7 @@ func setupRouter(debug bool, noauth bool) http.Handler {
 	} else {
 		api.POST("/update", Auth(webUpdatePost))
 	}
-	return c.Handler(api)
+	return api
 }
 
 func TestApiRegister(t *testing.T) {

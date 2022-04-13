@@ -3,12 +3,13 @@ package main
 import (
 	"flag"
 	"fmt"
-	log "github.com/sirupsen/logrus"
-	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"io/ioutil"
 	"os"
 	"sync"
 	"testing"
+
+	log "github.com/sirupsen/logrus"
+	logrustest "github.com/sirupsen/logrus/hooks/test"
 )
 
 var loghook = new(logrustest.Hook)
@@ -74,16 +75,14 @@ func setupConfig() {
 		Nsname:        "ns1.auth.example.org",
 		Nsadmin:       "admin.example.org",
 		StaticRecords: records,
-		Debug:         false,
 	}
 
 	var httpapicfg = httpapi{
-		Domain:      "",
-		Port:        "8080",
-		TLS:         "none",
-		CorsOrigins: []string{"*"},
-		UseHeader:   false,
-		HeaderName:  "X-Forwarded-For",
+		Domain:     "",
+		Port:       "8080",
+		TLS:        "none",
+		UseHeader:  false,
+		HeaderName: "X-Forwarded-For",
 	}
 
 	var dnscfg = DNSConfig{

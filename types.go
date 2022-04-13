@@ -28,7 +28,6 @@ type general struct {
 	Domain        string
 	Nsname        string
 	Nsadmin       string
-	Debug         bool
 	StaticRecords []string `toml:"records"`
 }
 
@@ -47,7 +46,6 @@ type httpapi struct {
 	TLS                 string
 	TLSCertPrivkey      string `toml:"tls_cert_privkey"`
 	TLSCertFullchain    string `toml:"tls_cert_fullchain"`
-	CorsOrigins         []string
 	UseHeader           bool   `toml:"use_header"`
 	HeaderName          string `toml:"header_name"`
 }
