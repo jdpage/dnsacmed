@@ -11,12 +11,11 @@ import (
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/gavv/httpexpect"
 	"github.com/google/uuid"
-	"github.com/julienschmidt/httprouter"
 )
 
 // noAuth function to write ACMETxt model to context while not preforming any validation
-func noAuth(update httprouter.Handle) httprouter.Handle {
-	return func(w http.ResponseWriter, r *http.Request, p httprouter.Params) {
+func noAuth(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
 		postData := ACMETxt{}
 		uname := r.Header.Get("X-Api-User")
 		passwd := r.Header.Get("X-Api-Key")
@@ -30,7 +29,7 @@ func noAuth(update httprouter.Handle) httprouter.Handle {
 		ctx := r.Context()
 		ctx = context.WithValue(ctx, ACMETxtKey, postData)
 		r = r.WithContext(ctx)
-		update(w, r, p)
+		next(w, r)
 	}
 }
 
@@ -46,7 +45,7 @@ func getExpect(t *testing.T, server *httptest.Server) *httpexpect.Expect {
 }
 
 func setupRouter(debug bool, noauth bool) http.Handler {
-	api := httprouter.New()
+	api := http.NewServeMux()
 	var dbcfg = dbsettings{
 		Engine:     "sqlite3",
 		Connection: ":memory:"}
@@ -62,12 +61,12 @@ func setupRouter(debug bool, noauth bool) http.Handler {
 		Database: dbcfg,
 	}
 	Config = dnscfg
-	api.POST("/register", webRegisterPost)
-	api.GET("/health", healthCheck)
+	api.HandleFunc("/register", webRegisterPost)
+	api.HandleFunc("/health", healthCheck)
 	if noauth {
-		api.POST("/update", noAuth(webUpdatePost))
+		api.HandleFunc("/update", noAuth(webUpdatePost))
 	} else {
-		api.POST("/update", Auth(webUpdatePost))
+		api.HandleFunc("/update", Auth(webUpdatePost))
 	}
 	return api
 }

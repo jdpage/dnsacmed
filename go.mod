@@ -8,7 +8,6 @@ require (
 	github.com/erikstmartin/go-testdb v0.0.0-20160219214506-8d10e4a1bae5
 	github.com/gavv/httpexpect v2.0.0+incompatible
 	github.com/google/uuid v1.3.0
-	github.com/julienschmidt/httprouter v1.3.0
 	github.com/lib/pq v1.10.5
 	github.com/mattn/go-sqlite3 v1.14.12
 	github.com/miekg/dns v1.1.48

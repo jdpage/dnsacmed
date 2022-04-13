@@ -12,7 +12,6 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/julienschmidt/httprouter"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -106,12 +105,12 @@ func startHTTPAPI(errChan chan error, config DNSConfig, dnsservers []*DNSServer)
 	// Certmagic
 	stdlog.SetOutput(logwriter)
 
-	api := httprouter.New()
+	api := http.NewServeMux()
 	if !Config.API.DisableRegistration {
-		api.POST("/register", webRegisterPost)
+		api.HandleFunc("/register", webRegisterPost)
 	}
-	api.POST("/update", Auth(webUpdatePost))
-	api.GET("/health", healthCheck)
+	api.HandleFunc("/update", Auth(webUpdatePost))
+	api.HandleFunc("/health", healthCheck)
 
 	host := Config.API.IP + ":" + Config.API.Port
 

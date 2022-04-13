@@ -6,7 +6,6 @@ import (
 	"io/ioutil"
 	"net/http"
 
-	"github.com/julienschmidt/httprouter"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -19,7 +18,13 @@ type RegResponse struct {
 	Allowfrom  []string `json:"allowfrom"`
 }
 
-func webRegisterPost(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
+func webRegisterPost(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", "POST")
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
 	var regStatus int
 	var reg []byte
 	var err error
@@ -71,7 +76,13 @@ func webRegisterPost(w http.ResponseWriter, r *http.Request, _ httprouter.Params
 	_, _ = w.Write(reg)
 }
 
-func webUpdatePost(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
+func webUpdatePost(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", "POST")
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
 	var updStatus int
 	var upd []byte
 	// Get user
@@ -108,6 +119,12 @@ func webUpdatePost(w http.ResponseWriter, r *http.Request, _ httprouter.Params) 
 }
 
 // Endpoint used to check the readiness and/or liveness (health) of the server.
-func healthCheck(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
+func healthCheck(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.Header().Set("Allow", "GET")
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
 	w.WriteHeader(http.StatusOK)
 }

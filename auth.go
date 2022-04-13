@@ -7,7 +7,6 @@ import (
 	"net"
 	"net/http"
 
-	"github.com/julienschmidt/httprouter"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -17,8 +16,8 @@ type key int
 const ACMETxtKey key = 0
 
 // Auth middleware for update request
-func Auth(update httprouter.Handle) httprouter.Handle {
-	return func(w http.ResponseWriter, r *http.Request, p httprouter.Params) {
+func Auth(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
 		postData := ACMETxt{}
 		userOK := false
 		user, err := getUserFromRequest(r)
@@ -46,7 +45,7 @@ func Auth(update httprouter.Handle) httprouter.Handle {
 			postData.Password = user.Password
 			// Set the ACMETxt struct to context to pull in from update function
 			ctx := context.WithValue(r.Context(), ACMETxtKey, postData)
-			update(w, r.WithContext(ctx), p)
+			next(w, r.WithContext(ctx))
 		} else {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusUnauthorized)
