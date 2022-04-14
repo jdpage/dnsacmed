@@ -1,4 +1,4 @@
-package main
+package api
 
 import (
 	"context"
@@ -6,7 +6,10 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"strings"
 
+	"github.com/jdpage/dnsacmed/pkg/db"
+	"github.com/jdpage/dnsacmed/pkg/model"
 	"go.uber.org/zap"
 )
 
@@ -19,11 +22,11 @@ const ACMETxtKey key = 0
 type authMiddleware struct {
 	config *Config
 	logger *zap.Logger
-	db     database
+	db     db.Database
 }
 
 func (m authMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
-	postData := ACMETxt{}
+	postData := model.ACMETxt{}
 	userOK := false
 	user, err := m.getUserFromRequest(r)
 	if err == nil {
@@ -49,7 +52,7 @@ func (m authMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Request, next h
 		postData.Username = user.Username
 		postData.Password = user.Password
 		// Set the ACMETxt struct to context to pull in from update function
-		ctx := context.WithValue(r.Context(), ACMETxtKey, postData)
+		ctx := context.WithValue(r.Context(), ACMETxtKey, &postData)
 		next(w, r.WithContext(ctx))
 	} else {
 		w.Header().Set("Content-Type", "application/json")
@@ -58,39 +61,50 @@ func (m authMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Request, next h
 	}
 }
 
-func (m authMiddleware) getUserFromRequest(r *http.Request) (ACMETxt, error) {
+func (m authMiddleware) getUserFromRequest(r *http.Request) (*model.ACMETxt, error) {
 	uname := r.Header.Get("X-Api-User")
 	passwd := r.Header.Get("X-Api-Key")
 	username, err := getValidUsername(uname)
 	if err != nil {
-		return ACMETxt{}, fmt.Errorf("Invalid username: %s: %s", uname, err.Error())
+		return nil, fmt.Errorf("Invalid username: %s: %s", uname, err.Error())
 	}
 	if validKey(passwd) {
 		dbuser, err := m.db.GetByUsername(username)
 		if err != nil {
 			m.logger.Error("While trying to get user", zap.Error(err))
 			// To protect against timed side channel (never gonna give you up)
-			correctPassword(passwd, "$2a$10$8JEFVNYYhLoBysjAxe2yBuXrkDojBQBkVpXEQgyQyjn43SvJ4vL36")
+			db.CorrectPassword(passwd, "$2a$10$8JEFVNYYhLoBysjAxe2yBuXrkDojBQBkVpXEQgyQyjn43SvJ4vL36")
 
-			return ACMETxt{}, fmt.Errorf("Invalid username: %s", uname)
+			return nil, fmt.Errorf("Invalid username: %s", uname)
 		}
-		if correctPassword(passwd, dbuser.Password) {
+		if db.CorrectPassword(passwd, dbuser.Password) {
 			return dbuser, nil
 		}
-		return ACMETxt{}, fmt.Errorf("Invalid password for user %s", uname)
+		return nil, fmt.Errorf("Invalid password for user %s", uname)
 	}
-	return ACMETxt{}, fmt.Errorf("Invalid key for user %s", uname)
+	return nil, fmt.Errorf("Invalid key for user %s", uname)
 }
 
-func (m authMiddleware) updateAllowedFromIP(r *http.Request, user ACMETxt) bool {
-	if m.config.API.UseHeader {
-		ips := getIPListFromHeader(r.Header.Get(m.config.API.HeaderName))
-		return user.allowedFromList(m.logger, ips)
+func (m authMiddleware) updateAllowedFromIP(r *http.Request, user *model.ACMETxt) bool {
+	if m.config.UseHeader {
+		ips := getIPListFromHeader(r.Header.Get(m.config.HeaderName))
+		return user.IsAllowedFromList(m.logger, ips)
 	}
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
 		m.logger.Error("While parsing remote address", zap.Error(err), zap.String("remoteaddr", r.RemoteAddr))
 		host = ""
 	}
-	return user.allowedFrom(m.logger, host)
+	return user.IsAllowedFrom(m.logger, host)
+}
+
+func getIPListFromHeader(header string) []string {
+	iplist := []string{}
+	for _, v := range strings.Split(header, ",") {
+		if len(v) > 0 {
+			// Ignore empty values
+			iplist = append(iplist, strings.TrimSpace(v))
+		}
+	}
+	return iplist
 }

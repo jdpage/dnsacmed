@@ -1,4 +1,4 @@
-package main
+package db
 
 import (
 	"database/sql"
@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jdpage/dnsacmed/pkg/model"
 	_ "github.com/lib/pq"
 	_ "github.com/mattn/go-sqlite3"
 	"go.uber.org/zap"
@@ -54,14 +55,15 @@ func getSQLiteStmt(s string) string {
 	return re.ReplaceAllString(s, "?")
 }
 
-func (d *acmedb) Init(logger *zap.Logger, engine string, connection string) error {
+func NewACMEDB(logger *zap.Logger, config Config) (Database, error) {
+	d := new(acmedb)
 	d.Lock()
 	defer d.Unlock()
 	d.logger = logger
-	d.engine = engine
-	db, err := sql.Open(engine, connection)
+	d.engine = config.Engine
+	db, err := sql.Open(config.Engine, config.Connection)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	d.DB = db
 	// Check version first to try to catch old versions without version string
@@ -78,17 +80,15 @@ func (d *acmedb) Init(logger *zap.Logger, engine string, connection string) erro
 		_, _ = d.DB.Exec(txtTablePG)
 	}
 	// If everything is fine, handle db upgrade tasks
-	if err == nil {
-		err = d.checkDBUpgrades(versionString)
+	if err = d.checkDBUpgrades(versionString); err != nil {
+		return nil, err
 	}
-	if err == nil {
-		if versionString == "0" {
-			// No errors so we should now be in version 1
-			insversion := fmt.Sprintf("INSERT INTO acmedns (Name, Value) values('db_version', '%d')", DBVersion)
-			_, err = db.Exec(insversion)
-		}
+	if versionString == "0" {
+		// No errors so we should now be in version 1
+		insversion := fmt.Sprintf("INSERT INTO acmedns (Name, Value) values('db_version', '%d')", DBVersion)
+		_, err = db.Exec(insversion)
 	}
-	return err
+	return d, nil
 }
 
 func (d *acmedb) checkDBUpgrades(versionString string) error {
@@ -172,7 +172,7 @@ func (d *acmedb) NewTXTValuesInTransaction(tx *sql.Tx, subdomain string) error {
 	return err
 }
 
-func (d *acmedb) Register(afrom cidrslice) (ACMETxt, error) {
+func (d *acmedb) Register(afrom model.CIDRSlice) (*model.ACMETxt, error) {
 	d.Lock()
 	defer d.Unlock()
 	var err error
@@ -185,13 +185,13 @@ func (d *acmedb) Register(afrom cidrslice) (ACMETxt, error) {
 		}
 		_ = tx.Commit()
 	}()
-	a, err := newACMETxt()
+	a, err := model.NewACMETxt()
 	if err != nil {
 		d.logger.Error("While creating registration", zap.Error(err))
 		return a, fmt.Errorf("While creating registration: %w", err)
 	}
 
-	a.AllowFrom = cidrslice(afrom.ValidEntries())
+	a.AllowFrom = model.CIDRSlice(afrom.ValidEntries())
 	passwordHash, err := bcrypt.GenerateFromPassword([]byte(a.Password), 10)
 	regSQL := `
     INSERT INTO records(
@@ -216,10 +216,10 @@ func (d *acmedb) Register(afrom cidrslice) (ACMETxt, error) {
 	return a, err
 }
 
-func (d *acmedb) GetByUsername(u uuid.UUID) (ACMETxt, error) {
+func (d *acmedb) GetByUsername(u uuid.UUID) (*model.ACMETxt, error) {
 	d.Lock()
 	defer d.Unlock()
-	var results []ACMETxt
+	var results []model.ACMETxt
 	getSQL := `
 	SELECT Username, Password, Subdomain, AllowFrom
 	FROM records
@@ -231,12 +231,12 @@ func (d *acmedb) GetByUsername(u uuid.UUID) (ACMETxt, error) {
 
 	sm, err := d.DB.Prepare(getSQL)
 	if err != nil {
-		return ACMETxt{}, err
+		return nil, err
 	}
 	defer sm.Close()
 	rows, err := sm.Query(u.String())
 	if err != nil {
-		return ACMETxt{}, err
+		return nil, err
 	}
 	defer rows.Close()
 
@@ -244,20 +244,20 @@ func (d *acmedb) GetByUsername(u uuid.UUID) (ACMETxt, error) {
 	for rows.Next() {
 		txt, err := d.getModelFromRow(rows)
 		if err != nil {
-			return ACMETxt{}, err
+			return nil, err
 		}
 		results = append(results, txt)
 	}
 	if len(results) > 0 {
-		return results[0], nil
+		return &results[0], nil
 	}
-	return ACMETxt{}, errors.New("no user")
+	return nil, errors.New("no user")
 }
 
 func (d *acmedb) GetTXTForDomain(domain string) ([]string, error) {
 	d.Lock()
 	defer d.Unlock()
-	domain = sanitizeString(domain)
+	domain = model.SanitizeString(domain)
 	var txts []string
 	getSQL := `
 	SELECT Value FROM txt WHERE Subdomain=$1 LIMIT 2
@@ -288,7 +288,7 @@ func (d *acmedb) GetTXTForDomain(domain string) ([]string, error) {
 	return txts, nil
 }
 
-func (d *acmedb) Update(a ACMETxtPost) error {
+func (d *acmedb) Update(a *model.ACMETxtPost) error {
 	d.Lock()
 	defer d.Unlock()
 	var err error
@@ -316,8 +316,8 @@ func (d *acmedb) Update(a ACMETxtPost) error {
 	return nil
 }
 
-func (d *acmedb) getModelFromRow(r *sql.Rows) (ACMETxt, error) {
-	txt := ACMETxt{}
+func (d *acmedb) getModelFromRow(r *sql.Rows) (model.ACMETxt, error) {
+	txt := model.ACMETxt{}
 	afrom := ""
 	err := r.Scan(
 		&txt.Username,
@@ -328,7 +328,7 @@ func (d *acmedb) getModelFromRow(r *sql.Rows) (ACMETxt, error) {
 		d.logger.Error("Row scan error", zap.Error(err))
 	}
 
-	cslice := cidrslice{}
+	cslice := model.CIDRSlice{}
 	err = json.Unmarshal([]byte(afrom), &cslice)
 	if err != nil {
 		d.logger.Error("JSON unmarshal error", zap.Error(err))
@@ -347,4 +347,11 @@ func (d *acmedb) GetBackend() *sql.DB {
 
 func (d *acmedb) SetBackend(backend *sql.DB) {
 	d.DB = backend
+}
+
+func CorrectPassword(pw string, hash string) bool {
+	if err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(pw)); err == nil {
+		return true
+	}
+	return false
 }

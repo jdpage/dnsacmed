@@ -1,10 +1,11 @@
-package main
+package dns
 
 import (
 	"fmt"
 	"strings"
 	"time"
 
+	"github.com/jdpage/dnsacmed/pkg/db"
 	"github.com/miekg/dns"
 	"go.uber.org/zap"
 )
@@ -17,7 +18,7 @@ type Records struct {
 // DNSServer is the main struct for acme-dns DNS server
 type DNSServer struct {
 	logger          *zap.Logger
-	DB              database
+	DB              db.Database
 	Domain          string
 	Server          *dns.Server
 	SOA             dns.RR
@@ -26,7 +27,7 @@ type DNSServer struct {
 }
 
 // NewDNSServer parses the DNS records from config and returns a new DNSServer struct
-func NewDNSServer(logger *zap.Logger, db database, addr string, proto string, domain string) *DNSServer {
+func NewDNSServer(logger *zap.Logger, db db.Database, addr string, proto string, domain string) *DNSServer {
 	var server DNSServer
 	server.logger = logger
 	server.Server = &dns.Server{Addr: addr, Net: proto}
@@ -53,7 +54,7 @@ func (d *DNSServer) Start(errorChannel chan error) {
 
 // ParseRecords parses a slice of DNS record string
 func (d *DNSServer) ParseRecords(config *Config) {
-	for _, v := range config.DNS.StaticRecords {
+	for _, v := range config.StaticRecords {
 		rr, err := dns.NewRR(strings.ToLower(v))
 		if err != nil {
 			d.logger.Warn("Could not parse RR from config", zap.Error(err), zap.String("rr", v))
@@ -65,7 +66,7 @@ func (d *DNSServer) ParseRecords(config *Config) {
 	// Create serial
 	serial := time.Now().Format("2006010215")
 	// Add SOA
-	SOAstring := fmt.Sprintf("%s. SOA %s. %s. %s 28800 7200 604800 86400", strings.ToLower(config.DNS.Domain), strings.ToLower(config.DNS.NSName), strings.ToLower(config.DNS.NSAdmin), serial)
+	SOAstring := fmt.Sprintf("%s. SOA %s. %s. %s 28800 7200 604800 86400", strings.ToLower(config.Domain), strings.ToLower(config.NSName), strings.ToLower(config.NSAdmin), serial)
 	soarr, err := dns.NewRR(SOAstring)
 	if err != nil {
 		d.logger.Error("While adding SOA record", zap.Error(err), zap.String("soa", SOAstring))
@@ -245,4 +246,13 @@ func (d *DNSServer) answerOwnChallenge(q dns.Question) ([]dns.RR, error) {
 	r.Hdr = dns.RR_Header{Name: q.Name, Rrtype: dns.TypeTXT, Class: dns.ClassINET, Ttl: 1}
 	r.Txt = append(r.Txt, d.PersonalKeyAuth)
 	return []dns.RR{r}, nil
+}
+
+func sanitizeDomainQuestion(d string) string {
+	dom := strings.ToLower(d)
+	firstDot := strings.Index(d, ".")
+	if firstDot > 0 {
+		dom = dom[0:firstDot]
+	}
+	return dom
 }

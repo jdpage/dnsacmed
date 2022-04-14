@@ -1,4 +1,4 @@
-package main
+package api
 
 import (
 	"testing"
@@ -82,52 +82,6 @@ func TestValidTXT(t *testing.T) {
 		ret := validTXT(test.txt)
 		if ret != test.output {
 			t.Errorf("Test %d: Expected return value %t, but got %t", i, test.output, ret)
-		}
-	}
-}
-
-func TestCorrectPassword(t *testing.T) {
-	for i, test := range []struct {
-		pw     string
-		hash   string
-		output bool
-	}{
-		{"PUrNTjU24JYNEOCeS2JcjaJGv1sinT80oV9--dpX",
-			"$2a$10$ldVoGU5yrdlbPzuPUbUfleVovGjaRelP9tql0IltVUJk778gf.2tu",
-			true},
-		{"PUrNTjU24JYNEOCeS2JcjaJGv1sinT80oV9--dpX",
-			"$2a$10$ldVoGU5yrdlbPzuPUbUfleVovGjaRelP9tql0IltVUJk778gf.2t",
-			false},
-		{"PUrNTjU24JYNEOCeS2JcjaJGv1sinT80oV9--dp",
-			"$2a$10$ldVoGU5yrdlbPzuPUbUfleVovGjaRelP9tql0IltVUJk778gf.2tu",
-			false},
-		{"", "", false},
-	} {
-		ret := correctPassword(test.pw, test.hash)
-		if ret != test.output {
-			t.Errorf("Test %d: Expected return value %t, but got %t", i, test.output, ret)
-		}
-	}
-}
-
-func TestGetValidCIDRMasks(t *testing.T) {
-	for i, test := range []struct {
-		input  cidrslice
-		output cidrslice
-	}{
-		{cidrslice{"10.0.0.1/24"}, cidrslice{"10.0.0.1/24"}},
-		{cidrslice{"invalid", "127.0.0.1/32"}, cidrslice{"127.0.0.1/32"}},
-		{cidrslice{"2002:c0a8::0/32", "8.8.8.8/32"}, cidrslice{"2002:c0a8::0/32", "8.8.8.8/32"}},
-	} {
-		ret := test.input.ValidEntries()
-		if len(ret) == len(test.output) {
-			for i, v := range ret {
-				if v != test.output[i] {
-					t.Errorf("Test %d: Expected %q but got %q", i, test.output, ret)
-				}
-			}
-		} else {
-			t.Errorf("Test %d: Expected %q but got %q", i, test.output, ret)
 		}
 	}
 }

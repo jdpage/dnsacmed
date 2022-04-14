@@ -1,13 +1,19 @@
-package main
+package db
 
 import (
 	"database/sql"
 	"database/sql/driver"
 	"errors"
+	"flag"
 	"testing"
 
 	"github.com/erikstmartin/go-testdb"
+	"github.com/jdpage/dnsacmed/pkg/model"
 	"go.uber.org/zap/zaptest"
+)
+
+var (
+	postgres = flag.Bool("postgres", false, "run integration tests against PostgreSQL")
 )
 
 type testResult struct {
@@ -23,12 +29,25 @@ func (r testResult) RowsAffected() (int64, error) {
 	return r.affectedRows, nil
 }
 
+func setupDB(t *testing.T) Database {
+	logger := zaptest.NewLogger(t)
+	var db Database
+	if *postgres {
+		var err error
+		db, err = NewACMEDB(logger, Config{"postgres", "postgres://acmedns:acmedns@localhost/acmedns"})
+		if err != nil {
+			t.Fatal("PostgreSQL integration tests expect database \"acmedns\" running in localhost, with username and password set to \"acmedns\"")
+		}
+	} else {
+		db, _ = NewACMEDB(logger, Config{"sqlite3", ":memory:"})
+	}
+	return db
+}
+
 func TestDBInit(t *testing.T) {
 	logger := zaptest.NewLogger(t)
 
-	fakeDB := new(acmedb)
-	err := fakeDB.Init(logger, "notarealegine", "connectionstring")
-	if err == nil {
+	if _, err := NewACMEDB(logger, Config{"notarealengine", "connectionstring"}); err == nil {
 		t.Errorf("Was expecting error, didn't get one.")
 	}
 
@@ -37,40 +56,34 @@ func TestDBInit(t *testing.T) {
 	})
 	defer testdb.Reset()
 
-	errorDB := new(acmedb)
-	err = errorDB.Init(logger, "testdb", "")
+	_, err := NewACMEDB(logger, Config{"testdb", ""})
 	if err == nil {
 		t.Errorf("Was expecting DB initiation error but got none")
 	}
-	errorDB.Close()
 }
 
 func TestRegisterNoCIDR(t *testing.T) {
-	config := setupConfig()
-	logger := zaptest.NewLogger(t)
-	db := setupDB(config, logger)
+	db := setupDB(t)
 
 	// Register tests
-	_, err := db.Register(cidrslice{})
+	_, err := db.Register(model.CIDRSlice{})
 	if err != nil {
 		t.Errorf("Registration failed, got error [%v]", err)
 	}
 }
 
 func TestRegisterMany(t *testing.T) {
-	config := setupConfig()
-	logger := zaptest.NewLogger(t)
 	for _, test := range []struct {
 		name   string
-		input  cidrslice
-		output cidrslice
+		input  model.CIDRSlice
+		output model.CIDRSlice
 	}{
-		{"all good", cidrslice{"127.0.0.1/8", "8.8.8.8/32", "1.0.0.1/1"}, cidrslice{"127.0.0.1/8", "8.8.8.8/32", "1.0.0.1/1"}},
-		{"all invalid", cidrslice{"1.1.1./32", "1922.168.42.42/8", "1.1.1.1/33", "1.2.3.4/"}, cidrslice{}},
-		{"some invalid", cidrslice{"7.6.5.4/32", "invalid", "1.0.0.1/2"}, cidrslice{"7.6.5.4/32", "1.0.0.1/2"}},
+		{"all good", model.CIDRSlice{"127.0.0.1/8", "8.8.8.8/32", "1.0.0.1/1"}, model.CIDRSlice{"127.0.0.1/8", "8.8.8.8/32", "1.0.0.1/1"}},
+		{"all invalid", model.CIDRSlice{"1.1.1./32", "1922.168.42.42/8", "1.1.1.1/33", "1.2.3.4/"}, model.CIDRSlice{}},
+		{"some invalid", model.CIDRSlice{"7.6.5.4/32", "invalid", "1.0.0.1/2"}, model.CIDRSlice{"7.6.5.4/32", "1.0.0.1/2"}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			db := setupDB(config, logger)
+			db := setupDB(t)
 			user, err := db.Register(test.input)
 			if err != nil {
 				t.Errorf("Got error from register method: [%v]", err)
@@ -90,12 +103,10 @@ func TestRegisterMany(t *testing.T) {
 }
 
 func TestGetByUsername(t *testing.T) {
-	config := setupConfig()
-	logger := zaptest.NewLogger(t)
-	db := setupDB(config, logger)
+	db := setupDB(t)
 
 	// Create  reg to refer to
-	reg, err := db.Register(cidrslice{})
+	reg, err := db.Register(model.CIDRSlice{})
 	if err != nil {
 		t.Errorf("Registration failed, got error [%v]", err)
 	}
@@ -114,17 +125,15 @@ func TestGetByUsername(t *testing.T) {
 	}
 
 	// regUser password already is a bcrypt hash
-	if !correctPassword(reg.Password, regUser.Password) {
+	if !CorrectPassword(reg.Password, regUser.Password) {
 		t.Errorf("The password [%s] does not match the hash [%s]", reg.Password, regUser.Password)
 	}
 }
 
 func TestPrepareErrors(t *testing.T) {
-	config := setupConfig()
-	logger := zaptest.NewLogger(t)
-	db := setupDB(config, logger)
+	db := setupDB(t)
 
-	reg, _ := db.Register(cidrslice{})
+	reg, _ := db.Register(model.CIDRSlice{})
 	tdb, err := sql.Open("testdb", "")
 	if err != nil {
 		t.Errorf("Got error: %v", err)
@@ -146,11 +155,9 @@ func TestPrepareErrors(t *testing.T) {
 }
 
 func TestQueryExecErrors(t *testing.T) {
-	config := setupConfig()
-	logger := zaptest.NewLogger(t)
-	db := setupDB(config, logger)
+	db := setupDB(t)
 
-	reg, _ := db.Register(cidrslice{})
+	reg, _ := db.Register(model.CIDRSlice{})
 	testdb.SetExecWithArgsFunc(func(query string, args []driver.Value) (result driver.Result, err error) {
 		return testResult{1, 0}, errors.New("Prepared query error")
 	})
@@ -181,12 +188,12 @@ func TestQueryExecErrors(t *testing.T) {
 		t.Errorf("Expected error from exec in GetByDomain, but got none")
 	}
 
-	_, err = db.Register(cidrslice{})
+	_, err = db.Register(model.CIDRSlice{})
 	if err == nil {
 		t.Errorf("Expected error from exec in Register, but got none")
 	}
 	reg.Value = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-	err = db.Update(reg.ACMETxtPost)
+	err = db.Update(&reg.ACMETxtPost)
 	if err == nil {
 		t.Errorf("Expected error from exec in Update, but got none")
 	}
@@ -194,10 +201,8 @@ func TestQueryExecErrors(t *testing.T) {
 }
 
 func TestQueryScanErrors(t *testing.T) {
-	config := setupConfig()
-	logger := zaptest.NewLogger(t)
-	db := setupDB(config, logger)
-	reg, _ := db.Register(cidrslice{})
+	db := setupDB(t)
+	reg, _ := db.Register(model.CIDRSlice{})
 
 	testdb.SetExecWithArgsFunc(func(query string, args []driver.Value) (result driver.Result, err error) {
 		return testResult{1, 0}, errors.New("Prepared query error")
@@ -226,10 +231,8 @@ func TestQueryScanErrors(t *testing.T) {
 }
 
 func TestBadDBValues(t *testing.T) {
-	config := setupConfig()
-	logger := zaptest.NewLogger(t)
-	db := setupDB(config, logger)
-	reg, _ := db.Register(cidrslice{})
+	db := setupDB(t)
+	reg, _ := db.Register(model.CIDRSlice{})
 
 	testdb.SetQueryWithArgsFunc(func(query string, args []driver.Value) (result driver.Rows, err error) {
 		columns := []string{"Username", "Password", "Subdomain", "Value", "LastActive"}
@@ -259,12 +262,10 @@ func TestBadDBValues(t *testing.T) {
 }
 
 func TestGetTXTForDomain(t *testing.T) {
-	config := setupConfig()
-	logger := zaptest.NewLogger(t)
-	db := setupDB(config, logger)
+	db := setupDB(t)
 
 	// Create  reg to refer to
-	reg, err := db.Register(cidrslice{})
+	reg, err := db.Register(model.CIDRSlice{})
 	if err != nil {
 		t.Errorf("Registration failed, got error [%v]", err)
 	}
@@ -273,10 +274,10 @@ func TestGetTXTForDomain(t *testing.T) {
 	txtval2 := "___validation_token_received_YEAH_the_ca___"
 
 	reg.Value = txtval1
-	_ = db.Update(reg.ACMETxtPost)
+	_ = db.Update(&reg.ACMETxtPost)
 
 	reg.Value = txtval2
-	_ = db.Update(reg.ACMETxtPost)
+	_ = db.Update(&reg.ACMETxtPost)
 
 	regDomainSlice, err := db.GetTXTForDomain(reg.Subdomain)
 	if err != nil {
@@ -311,12 +312,10 @@ func TestGetTXTForDomain(t *testing.T) {
 }
 
 func TestUpdate(t *testing.T) {
-	config := setupConfig()
-	logger := zaptest.NewLogger(t)
-	db := setupDB(config, logger)
+	db := setupDB(t)
 
 	// Create  reg to refer to
-	reg, err := db.Register(cidrslice{})
+	reg, err := db.Register(model.CIDRSlice{})
 	if err != nil {
 		t.Errorf("Registration failed, got error [%v]", err)
 	}
@@ -333,8 +332,32 @@ func TestUpdate(t *testing.T) {
 	regUser.Password = "nevergonnagiveyouup"
 	regUser.Value = validTXT
 
-	err = db.Update(regUser.ACMETxtPost)
+	err = db.Update(&regUser.ACMETxtPost)
 	if err != nil {
 		t.Errorf("DB Update failed, got error: [%v]", err)
+	}
+}
+
+func TestCorrectPassword(t *testing.T) {
+	for i, test := range []struct {
+		pw     string
+		hash   string
+		output bool
+	}{
+		{"PUrNTjU24JYNEOCeS2JcjaJGv1sinT80oV9--dpX",
+			"$2a$10$ldVoGU5yrdlbPzuPUbUfleVovGjaRelP9tql0IltVUJk778gf.2tu",
+			true},
+		{"PUrNTjU24JYNEOCeS2JcjaJGv1sinT80oV9--dpX",
+			"$2a$10$ldVoGU5yrdlbPzuPUbUfleVovGjaRelP9tql0IltVUJk778gf.2t",
+			false},
+		{"PUrNTjU24JYNEOCeS2JcjaJGv1sinT80oV9--dp",
+			"$2a$10$ldVoGU5yrdlbPzuPUbUfleVovGjaRelP9tql0IltVUJk778gf.2tu",
+			false},
+		{"", "", false},
+	} {
+		ret := CorrectPassword(test.pw, test.hash)
+		if ret != test.output {
+			t.Errorf("Test %d: Expected return value %t, but got %t", i, test.output, ret)
+		}
 	}
 }

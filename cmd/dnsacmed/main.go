@@ -4,14 +4,14 @@
 package main
 
 import (
-	"crypto/tls"
 	"flag"
 	"fmt"
-	"net/http"
-	"os"
 	"strings"
 	"syscall"
 
+	"github.com/jdpage/dnsacmed/pkg/api"
+	"github.com/jdpage/dnsacmed/pkg/db"
+	"github.com/jdpage/dnsacmed/pkg/dns"
 	"github.com/knadh/koanf"
 	"github.com/knadh/koanf/parsers/toml"
 	"github.com/knadh/koanf/providers/confmap"
@@ -83,10 +83,9 @@ func main() {
 	defer restoreLogger()
 
 	// Open database
-	db := new(acmedb)
-	if err := db.Init(logger, config.Database.Engine, config.Database.Connection); err != nil {
+	db, err := db.NewACMEDB(logger, config.Database)
+	if err != nil {
 		logger.Fatal("Could not open database", zap.Error(err))
-		os.Exit(1)
 	} else {
 		logger.Info("Connected to database")
 	}
@@ -96,7 +95,7 @@ func main() {
 	errChan := make(chan error, 1)
 
 	// DNS server
-	dnsservers := make([]*DNSServer, 0)
+	dnsservers := make([]*dns.DNSServer, 0)
 	if strings.HasPrefix(config.DNS.Proto, "both") {
 		// Handle the case where DNS server should be started for both udp and tcp
 		udpProto := "udp"
@@ -108,10 +107,10 @@ func main() {
 			udpProto += "6"
 			tcpProto += "6"
 		}
-		dnsServerUDP := NewDNSServer(logger, db, config.DNS.Listen, udpProto, config.DNS.Domain)
+		dnsServerUDP := dns.NewDNSServer(logger, db, config.DNS.Listen, udpProto, config.DNS.Domain)
 		dnsservers = append(dnsservers, dnsServerUDP)
-		dnsServerUDP.ParseRecords(&config)
-		dnsServerTCP := NewDNSServer(logger, db, config.DNS.Listen, tcpProto, config.DNS.Domain)
+		dnsServerUDP.ParseRecords(&config.DNS)
+		dnsServerTCP := dns.NewDNSServer(logger, db, config.DNS.Listen, tcpProto, config.DNS.Domain)
 		dnsservers = append(dnsservers, dnsServerTCP)
 		// No need to parse records from config again
 		dnsServerTCP.Domains = dnsServerUDP.Domains
@@ -119,14 +118,14 @@ func main() {
 		go dnsServerUDP.Start(errChan)
 		go dnsServerTCP.Start(errChan)
 	} else {
-		dnsServer := NewDNSServer(logger, db, config.DNS.Listen, config.DNS.Proto, config.DNS.Domain)
+		dnsServer := dns.NewDNSServer(logger, db, config.DNS.Listen, config.DNS.Proto, config.DNS.Domain)
 		dnsservers = append(dnsservers, dnsServer)
-		dnsServer.ParseRecords(&config)
+		dnsServer.ParseRecords(&config.DNS)
 		go dnsServer.Start(errChan)
 	}
 
 	// HTTP API
-	go startHTTPAPI(errChan, &config, logger, db, dnsservers)
+	go api.StartHTTPAPI(errChan, &config.API, &config.DNS, logger, db, dnsservers)
 
 	// block waiting for error
 	for {
@@ -136,43 +135,17 @@ func main() {
 	}
 }
 
-func startHTTPAPI(errChan chan error, config *Config, logger *zap.Logger, db database, dnsservers []*DNSServer) {
-	api := http.NewServeMux()
-	if !config.API.DisableRegistration {
-		api.Handle("/register", webRegisterHandler{config, logger, db})
-	}
-	api.HandleFunc("/update", func(w http.ResponseWriter, r *http.Request) {
-		authMiddleware{config, logger, db}.ServeHTTP(w, r, webUpdateHandler{logger, db}.ServeHTTP)
-	})
-	api.HandleFunc("/health", healthCheck)
-
-	errorLog, err := zap.NewStdLogAt(logger, zap.ErrorLevel)
-	if err != nil {
-		errChan <- err
-		return
-	}
-
-	if config.API.TLS {
-		srv := &http.Server{
-			Addr:    config.API.Listen,
-			Handler: api,
-			TLSConfig: &tls.Config{
-				MinVersion: tls.VersionTLS12,
-			},
-			ErrorLog: errorLog,
+func checkConfig(k *koanf.Koanf) error {
+	for _, key := range []string{
+		"dns.domain",
+		"dns.nsname",
+		"dns.nsadmin",
+		"database.engine",
+		"database.connection",
+	} {
+		if !k.Exists(key) {
+			return fmt.Errorf("Option %s is required but not provided", key)
 		}
-		logger.Info("Listening HTTPS", zap.String("host", srv.Addr))
-		err = srv.ListenAndServeTLS(config.API.TLSCertFullchain, config.API.TLSCertPrivkey)
-	} else {
-		srv := &http.Server{
-			Addr:     config.API.Listen,
-			Handler:  api,
-			ErrorLog: errorLog,
-		}
-		logger.Info("Listening HTTP", zap.String("host", srv.Addr))
-		err = srv.ListenAndServe()
 	}
-	if err != nil {
-		errChan <- err
-	}
+	return nil
 }

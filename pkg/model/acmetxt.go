@@ -1,8 +1,11 @@
-package main
+package model
 
 import (
+	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"net"
+	"regexp"
 
 	"github.com/google/uuid"
 	"go.uber.org/zap"
@@ -13,7 +16,7 @@ type ACMETxt struct {
 	Username uuid.UUID
 	Password string
 	ACMETxtPost
-	AllowFrom cidrslice
+	AllowFrom CIDRSlice
 }
 
 // ACMETxtPost holds the DNS part of the ACMETxt struct
@@ -23,14 +26,14 @@ type ACMETxtPost struct {
 }
 
 // cidrslice is a list of allowed cidr ranges
-type cidrslice []string
+type CIDRSlice []string
 
-func (c *cidrslice) JSON() string {
+func (c *CIDRSlice) JSON() string {
 	ret, _ := json.Marshal(c.ValidEntries())
 	return string(ret)
 }
 
-func (c *cidrslice) isValid() error {
+func (c *CIDRSlice) IsValid() error {
 	for _, v := range *c {
 		_, _, err := net.ParseCIDR(sanitizeIPv6addr(v))
 		if err != nil {
@@ -40,7 +43,7 @@ func (c *cidrslice) isValid() error {
 	return nil
 }
 
-func (c *cidrslice) ValidEntries() []string {
+func (c *CIDRSlice) ValidEntries() []string {
 	valid := []string{}
 	for _, v := range *c {
 		_, _, err := net.ParseCIDR(sanitizeIPv6addr(v))
@@ -52,7 +55,7 @@ func (c *cidrslice) ValidEntries() []string {
 }
 
 // Check if IP belongs to an allowed net
-func (a ACMETxt) allowedFrom(logger *zap.Logger, ip string) bool {
+func (a ACMETxt) IsAllowedFrom(logger *zap.Logger, ip string) bool {
 	remoteIP := net.ParseIP(ip)
 	// Range not limited
 	if len(a.AllowFrom.ValidEntries()) == 0 {
@@ -70,27 +73,49 @@ func (a ACMETxt) allowedFrom(logger *zap.Logger, ip string) bool {
 
 // Go through list (most likely from headers) to check for the IP.
 // Reason for this is that some setups use reverse proxy in front of acme-dns
-func (a ACMETxt) allowedFromList(logger *zap.Logger, ips []string) bool {
+func (a ACMETxt) IsAllowedFromList(logger *zap.Logger, ips []string) bool {
 	if len(ips) == 0 {
 		// If no IP provided, check if no whitelist present (everyone has access)
-		return a.allowedFrom(logger, "")
+		return a.IsAllowedFrom(logger, "")
 	}
 	for _, v := range ips {
-		if a.allowedFrom(logger, v) {
+		if a.IsAllowedFrom(logger, v) {
 			return true
 		}
 	}
 	return false
 }
 
-func newACMETxt() (ACMETxt, error) {
-	var a = ACMETxt{}
+func NewACMETxt() (*ACMETxt, error) {
 	password, err := generatePassword()
 	if err != nil {
-		return a, err
+		return nil, err
 	}
+	a := new(ACMETxt)
 	a.Username = uuid.New()
 	a.Password = password
 	a.Subdomain = uuid.New().String()
 	return a, nil
+}
+
+func SanitizeString(s string) string {
+	// URL safe base64 alphabet without padding as defined in ACME
+	re, _ := regexp.Compile(`[^A-Za-z\-\_0-9]+`)
+	return re.ReplaceAllString(s, "")
+}
+
+func sanitizeIPv6addr(s string) string {
+	// Remove brackets from IPv6 addresses, net.ParseCIDR needs this
+	re, _ := regexp.Compile(`[\[\]]+`)
+	return re.ReplaceAllString(s, "")
+}
+
+func generatePassword() (string, error) {
+	// 30 bytes -> 40 chr pw
+	bs := make([]byte, 30)
+	_, err := rand.Read(bs)
+	if err != nil {
+		return "", err
+	}
+	return base64.URLEncoding.EncodeToString(bs), nil
 }

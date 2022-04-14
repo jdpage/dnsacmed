@@ -1,11 +1,15 @@
-package main
+package api
 
 import (
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"net/http"
 
+	"github.com/jdpage/dnsacmed/pkg/db"
+	"github.com/jdpage/dnsacmed/pkg/dns"
+	"github.com/jdpage/dnsacmed/pkg/model"
 	"go.uber.org/zap"
 )
 
@@ -19,9 +23,10 @@ type RegResponse struct {
 }
 
 type webRegisterHandler struct {
-	config *Config
-	logger *zap.Logger
-	db     database
+	config    *Config
+	dnsConfig *dns.Config
+	logger    *zap.Logger
+	db        db.Database
 }
 
 func (h webRegisterHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -34,7 +39,7 @@ func (h webRegisterHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	var regStatus int
 	var reg []byte
 	var err error
-	aTXT := ACMETxt{}
+	aTXT := model.ACMETxt{}
 	bdata, _ := ioutil.ReadAll(r.Body)
 	if len(bdata) > 0 {
 		err = json.Unmarshal(bdata, &aTXT)
@@ -49,7 +54,7 @@ func (h webRegisterHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Fail with malformed CIDR mask in allowfrom
-	err = aTXT.AllowFrom.isValid()
+	err = aTXT.AllowFrom.IsValid()
 	if err != nil {
 		regStatus = http.StatusBadRequest
 		reg = jsonError("invalid_allowfrom_cidr")
@@ -68,7 +73,7 @@ func (h webRegisterHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.logger.Debug("Error in registration", zap.Error(err))
 	} else {
 		h.logger.Debug("Created new user", zap.Any("user", nu.Username))
-		regStruct := RegResponse{nu.Username.String(), nu.Password, nu.Subdomain + "." + h.config.DNS.Domain, nu.Subdomain, nu.AllowFrom.ValidEntries()}
+		regStruct := RegResponse{nu.Username.String(), nu.Password, nu.Subdomain + "." + h.dnsConfig.Domain, nu.Subdomain, nu.AllowFrom.ValidEntries()}
 		regStatus = http.StatusCreated
 		reg, err = json.Marshal(regStruct)
 		if err != nil {
@@ -84,7 +89,7 @@ func (h webRegisterHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 type webUpdateHandler struct {
 	logger *zap.Logger
-	db     database
+	db     db.Database
 }
 
 func (h webUpdateHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -97,7 +102,7 @@ func (h webUpdateHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	var updStatus int
 	var upd []byte
 	// Get user
-	a, ok := r.Context().Value(ACMETxtKey).(ACMETxt)
+	a, ok := r.Context().Value(ACMETxtKey).(*model.ACMETxt)
 	if !ok {
 		h.logger.Error("Context error", zap.String("error", "context"))
 	}
@@ -113,7 +118,7 @@ func (h webUpdateHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		updStatus = http.StatusBadRequest
 		upd = jsonError("bad_txt")
 	} else if validSubdomain(a.Subdomain) && validTXT(a.Value) {
-		err := h.db.Update(a.ACMETxtPost)
+		err := h.db.Update(&a.ACMETxtPost)
 		if err != nil {
 			h.logger.Error("Error while trying to update record", zap.Error(err))
 			updStatus = http.StatusInternalServerError
@@ -138,4 +143,45 @@ func healthCheck(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusOK)
+}
+
+func StartHTTPAPI(errChan chan error, config *Config, dnsConfig *dns.Config, logger *zap.Logger, db db.Database, dnsservers []*dns.DNSServer) {
+	api := http.NewServeMux()
+	if !config.DisableRegistration {
+		api.Handle("/register", webRegisterHandler{config, dnsConfig, logger, db})
+	}
+	api.HandleFunc("/update", func(w http.ResponseWriter, r *http.Request) {
+		authMiddleware{config, logger, db}.ServeHTTP(w, r, webUpdateHandler{logger, db}.ServeHTTP)
+	})
+	api.HandleFunc("/health", healthCheck)
+
+	errorLog, err := zap.NewStdLogAt(logger, zap.ErrorLevel)
+	if err != nil {
+		errChan <- err
+		return
+	}
+
+	if config.TLS {
+		srv := &http.Server{
+			Addr:    config.Listen,
+			Handler: api,
+			TLSConfig: &tls.Config{
+				MinVersion: tls.VersionTLS12,
+			},
+			ErrorLog: errorLog,
+		}
+		logger.Info("Listening HTTPS", zap.String("host", srv.Addr))
+		err = srv.ListenAndServeTLS(config.TLSCertFullchain, config.TLSCertPrivkey)
+	} else {
+		srv := &http.Server{
+			Addr:     config.Listen,
+			Handler:  api,
+			ErrorLog: errorLog,
+		}
+		logger.Info("Listening HTTP", zap.String("host", srv.Addr))
+		err = srv.ListenAndServe()
+	}
+	if err != nil {
+		errChan <- err
+	}
 }

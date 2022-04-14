@@ -1,19 +1,35 @@
-package main
+package dns
 
 import (
 	"database/sql"
 	"database/sql/driver"
 	"errors"
+	"flag"
 	"fmt"
+	"sync"
 	"testing"
 
 	"github.com/erikstmartin/go-testdb"
+	"github.com/jdpage/dnsacmed/pkg/db"
+	"github.com/jdpage/dnsacmed/pkg/model"
 	"github.com/miekg/dns"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"go.uber.org/zap/zaptest"
 	"go.uber.org/zap/zaptest/observer"
 )
+
+var (
+	postgres = flag.Bool("postgres", false, "run integration tests against PostgreSQL")
+)
+
+var records = []string{
+	"auth.example.org. A 192.168.1.100",
+	"ns1.auth.example.org. A 192.168.1.101",
+	"cn.example.org CNAME something.example.org.",
+	"!''b', unparseable ",
+	"ns2.auth.example.org. A 192.168.1.102",
+}
 
 type resolver struct {
 	server string
@@ -52,10 +68,49 @@ func hasExpectedTXTAnswer(answer []dns.RR, cmpTXT string) error {
 	return errors.New("Expected answer not found")
 }
 
+func setupDB(t *testing.T, logger *zap.Logger) db.Database {
+	var d db.Database
+	if *postgres {
+		var err error
+		d, err = db.NewACMEDB(logger, db.Config{Engine: "postgres", Connection: "postgres://acmedns:acmedns@localhost/acmedns"})
+		if err != nil {
+			t.Fatal("PostgreSQL integration tests expect database \"acmedns\" running in localhost, with username and password set to \"acmedns\"")
+		}
+	} else {
+		d, _ = db.NewACMEDB(logger, db.Config{Engine: "sqlite3", Connection: ":memory:"})
+	}
+	return d
+}
+
+func setupDNSServer(config Config, logger *zap.Logger, db db.Database) (*DNSServer, func() error) {
+	dnsserver := NewDNSServer(logger, db, config.Listen, config.Proto, config.Domain)
+	dnsserver.ParseRecords(&config)
+
+	// Make sure that the server has finished starting up before continuing
+	var wg sync.WaitGroup
+	wg.Add(1)
+	dnsserver.Server.NotifyStartedFunc = wg.Done
+	go dnsserver.Start(make(chan error, 1))
+	wg.Wait()
+
+	return dnsserver, dnsserver.Server.Shutdown
+}
+
+func setupConfig() Config {
+	return Config{
+		Domain:        "auth.example.org",
+		Listen:        "127.0.0.1:15353",
+		Proto:         "udp",
+		NSName:        "ns1.auth.example.org",
+		NSAdmin:       "admin.example.org",
+		StaticRecords: records,
+	}
+}
+
 func TestQuestionDBError(t *testing.T) {
 	config := setupConfig()
 	logger := zaptest.NewLogger(t)
-	db := setupDB(config, logger)
+	db := setupDB(t, logger)
 	dnsServer, stop := setupDNSServer(config, logger, db)
 	defer stop()
 
@@ -91,12 +146,10 @@ func TestParse(t *testing.T) {
 	dnsServer := NewDNSServer(logger, nil, "", "", "")
 
 	var testcfg = Config{
-		DNS: dnsConfig{
-			Domain:        ")",
-			NSName:        "ns1.auth.example.org",
-			NSAdmin:       "admin.example.org",
-			StaticRecords: []string{},
-		},
+		Domain:        ")",
+		NSName:        "ns1.auth.example.org",
+		NSAdmin:       "admin.example.org",
+		StaticRecords: []string{},
 	}
 	dnsServer.ParseRecords(&testcfg)
 	if logs.FilterMessage("While adding SOA record").Len() == -1 {
@@ -244,20 +297,20 @@ func TestAuthoritative(t *testing.T) {
 func TestResolveTXT(t *testing.T) {
 	config := setupConfig()
 	logger := zaptest.NewLogger(t)
-	db := setupDB(config, logger)
+	db := setupDB(t, logger)
 	_, stop := setupDNSServer(config, logger, db)
 	defer stop()
 
 	resolv := resolver{server: "127.0.0.1:15353"}
 	validTXT := "______________valid_response_______________"
 
-	atxt, err := db.Register(cidrslice{})
+	atxt, err := db.Register(model.CIDRSlice{})
 	if err != nil {
 		t.Errorf("Could not initiate db record: [%v]", err)
 		return
 	}
 	atxt.Value = validTXT
-	err = db.Update(atxt.ACMETxtPost)
+	err = db.Update(&atxt.ACMETxtPost)
 	if err != nil {
 		t.Errorf("Could not update db record: [%v]", err)
 		return
