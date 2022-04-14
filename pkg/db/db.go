@@ -188,10 +188,10 @@ func (d *acmedb) Register(afrom model.CIDRSlice) (*model.ACMETxt, error) {
 	a, err := model.NewACMETxt()
 	if err != nil {
 		d.logger.Error("While creating registration", zap.Error(err))
-		return a, fmt.Errorf("While creating registration: %w", err)
+		return nil, fmt.Errorf("While creating registration: %w", err)
 	}
 
-	a.AllowFrom = model.CIDRSlice(afrom.ValidEntries())
+	a.AllowFrom = afrom
 	passwordHash, err := bcrypt.GenerateFromPassword([]byte(a.Password), 10)
 	regSQL := `
     INSERT INTO records(
@@ -206,14 +206,24 @@ func (d *acmedb) Register(afrom model.CIDRSlice) (*model.ACMETxt, error) {
 	sm, err := tx.Prepare(regSQL)
 	if err != nil {
 		d.logger.Error("Database error in prepare", zap.Error(err))
-		return a, errors.New("SQL error")
+		return nil, errors.New("SQL error")
 	}
 	defer sm.Close()
-	_, err = sm.Exec(a.Username.String(), passwordHash, a.Subdomain, a.AllowFrom.JSON())
-	if err == nil {
-		err = d.NewTXTValuesInTransaction(tx, a.Subdomain)
+
+	afromJSON, err := json.Marshal(a.AllowFrom)
+	if err != nil {
+		return nil, err
 	}
-	return a, err
+
+	if _, err = sm.Exec(a.Username.String(), passwordHash, a.Subdomain, afromJSON); err != nil {
+		return nil, err
+	}
+
+	if err := d.NewTXTValuesInTransaction(tx, a.Subdomain); err != nil {
+		return nil, err
+	}
+
+	return a, nil
 }
 
 func (d *acmedb) GetByUsername(u uuid.UUID) (*model.ACMETxt, error) {
@@ -328,7 +338,7 @@ func (d *acmedb) getModelFromRow(r *sql.Rows) (model.ACMETxt, error) {
 		d.logger.Error("Row scan error", zap.Error(err))
 	}
 
-	cslice := model.CIDRSlice{}
+	var cslice model.CIDRSlice
 	err = json.Unmarshal([]byte(afrom), &cslice)
 	if err != nil {
 		d.logger.Error("JSON unmarshal error", zap.Error(err))

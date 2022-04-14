@@ -88,23 +88,24 @@ func (m authMiddleware) getUserFromRequest(r *http.Request) (*model.ACMETxt, err
 func (m authMiddleware) updateAllowedFromIP(r *http.Request, user *model.ACMETxt) bool {
 	if m.config.UseHeader {
 		ips := getIPListFromHeader(r.Header.Get(m.config.HeaderName))
-		return user.IsAllowedFromList(m.logger, ips)
+		return user.AllowFrom.ContainsAny(ips)
 	}
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
 		m.logger.Error("While parsing remote address", zap.Error(err), zap.String("remoteaddr", r.RemoteAddr))
 		host = ""
 	}
-	return user.IsAllowedFrom(m.logger, host)
+	return user.AllowFrom.Contains(net.ParseIP(host))
 }
 
-func getIPListFromHeader(header string) []string {
-	iplist := []string{}
+func getIPListFromHeader(header string) []net.IP {
+	var ips []net.IP
 	for _, v := range strings.Split(header, ",") {
+		v = strings.TrimSpace(v)
 		if len(v) > 0 {
 			// Ignore empty values
-			iplist = append(iplist, strings.TrimSpace(v))
+			ips = append(ips, net.ParseIP(v))
 		}
 	}
-	return iplist
+	return ips
 }

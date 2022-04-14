@@ -75,16 +75,17 @@ func TestRegisterNoCIDR(t *testing.T) {
 func TestRegisterMany(t *testing.T) {
 	for _, test := range []struct {
 		name   string
-		input  model.CIDRSlice
-		output model.CIDRSlice
+		input  []string
+		output []string
 	}{
-		{"all good", model.CIDRSlice{"127.0.0.1/8", "8.8.8.8/32", "1.0.0.1/1"}, model.CIDRSlice{"127.0.0.1/8", "8.8.8.8/32", "1.0.0.1/1"}},
-		{"all invalid", model.CIDRSlice{"1.1.1./32", "1922.168.42.42/8", "1.1.1.1/33", "1.2.3.4/"}, model.CIDRSlice{}},
-		{"some invalid", model.CIDRSlice{"7.6.5.4/32", "invalid", "1.0.0.1/2"}, model.CIDRSlice{"7.6.5.4/32", "1.0.0.1/2"}},
+		{"all good", []string{"127.0.0.1/8", "8.8.8.8/32", "1.0.0.1/1"}, []string{"127.0.0.1/8", "8.8.8.8/32", "1.0.0.1/1"}},
+		{"all invalid", []string{"1.1.1./32", "1922.168.42.42/8", "1.1.1.1/33", "1.2.3.4/"}, []string{}},
+		{"some invalid", []string{"7.6.5.4/32", "invalid", "1.0.0.1/2"}, []string{"7.6.5.4/32", "1.0.0.1/2"}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			db := setupDB(t)
-			user, err := db.Register(test.input)
+			nets, _ := model.ParseCIDRSlice(test.input)
+			user, err := db.Register(nets)
 			if err != nil {
 				t.Errorf("Got error from register method: [%v]", err)
 			}

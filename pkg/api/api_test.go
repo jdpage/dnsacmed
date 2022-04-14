@@ -122,7 +122,7 @@ func TestApiRegister(t *testing.T) {
 		ContainsKey("allowfrom").
 		NotContainsKey("error")
 
-	response.Value("allowfrom").Array().Elements("123.123.123.123/32", "2001:db8:a0b:12f0::1/32", "::1/64")
+	response.Value("allowfrom").Array().Elements("123.123.123.123/32", "2001:db8::/32", "::/64")
 }
 
 func TestApiRegisterBadAllowFrom(t *testing.T) {
@@ -358,13 +358,15 @@ func TestApiManyUpdateWithCredentials(t *testing.T) {
 
 	// User with defined allow from - CIDR masks, all invalid
 	// (httpexpect doesn't provide a way to mock remote ip)
-	newUserWithCIDR, err := db.Register(model.CIDRSlice{"192.168.1.1/32", "invalid"})
+	cidrs, _ := model.ParseCIDRSlice([]string{"192.168.1.1/32", "invalid"})
+	newUserWithCIDR, err := db.Register(cidrs)
 	if err != nil {
 		t.Errorf("Could not create new user with CIDR, got error [%v]", err)
 	}
 
 	// Another user with valid CIDR mask to match the httpexpect default
-	newUserWithValidCIDR, err := db.Register(model.CIDRSlice{"10.1.2.3/32", "invalid"})
+	cidrs, _ = model.ParseCIDRSlice([]string{"10.1.2.3/32", "invalid"})
+	newUserWithValidCIDR, err := db.Register(cidrs)
 	if err != nil {
 		t.Errorf("Could not create new user with a valid CIDR, got error [%v]", err)
 	}
@@ -417,12 +419,14 @@ func TestApiManyUpdateWithIpCheckHeaders(t *testing.T) {
 		t.Errorf("Could not create new user, got error [%v]", err)
 	}
 
-	newUserWithCIDR, err := db.Register(model.CIDRSlice{"192.168.1.2/32", "invalid"})
+	cidrs, _ := model.ParseCIDRSlice([]string{"192.168.1.2/32", "invalid"})
+	newUserWithCIDR, err := db.Register(cidrs)
 	if err != nil {
 		t.Errorf("Could not create new user with CIDR, got error [%v]", err)
 	}
 
-	newUserWithIP6CIDR, err := db.Register(model.CIDRSlice{"2002:c0a8::0/32"})
+	cidrs, _ = model.ParseCIDRSlice([]string{"2002:c0a8::0/32"})
+	newUserWithIP6CIDR, err := db.Register(cidrs)
 	if err != nil {
 		t.Errorf("Could not create a new user with IP6 CIDR, got error [%v]", err)
 	}

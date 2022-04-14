@@ -15,11 +15,11 @@ import (
 
 // RegResponse is a struct for registration response JSON
 type RegResponse struct {
-	Username   string   `json:"username"`
-	Password   string   `json:"password"`
-	Fulldomain string   `json:"fulldomain"`
-	Subdomain  string   `json:"subdomain"`
-	Allowfrom  []string `json:"allowfrom"`
+	Username   string          `json:"username"`
+	Password   string          `json:"password"`
+	Fulldomain string          `json:"fulldomain"`
+	Subdomain  string          `json:"subdomain"`
+	Allowfrom  model.CIDRSlice `json:"allowfrom"`
 }
 
 type webRegisterHandler struct {
@@ -45,23 +45,16 @@ func (h webRegisterHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		err = json.Unmarshal(bdata, &aTXT)
 		if err != nil {
 			regStatus = http.StatusBadRequest
-			reg = jsonError("malformed_json_payload")
+			if err == model.InvalidCIDRError {
+				reg = jsonError("invalid_allowfrom_cidr")
+			} else {
+				reg = jsonError("malformed_json_payload")
+			}
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(regStatus)
 			_, _ = w.Write(reg)
 			return
 		}
-	}
-
-	// Fail with malformed CIDR mask in allowfrom
-	err = aTXT.AllowFrom.IsValid()
-	if err != nil {
-		regStatus = http.StatusBadRequest
-		reg = jsonError("invalid_allowfrom_cidr")
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(regStatus)
-		_, _ = w.Write(reg)
-		return
 	}
 
 	// Create new user
@@ -73,7 +66,7 @@ func (h webRegisterHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.logger.Debug("Error in registration", zap.Error(err))
 	} else {
 		h.logger.Debug("Created new user", zap.Any("user", nu.Username))
-		regStruct := RegResponse{nu.Username.String(), nu.Password, nu.Subdomain + "." + h.dnsConfig.Domain, nu.Subdomain, nu.AllowFrom.ValidEntries()}
+		regStruct := RegResponse{nu.Username.String(), nu.Password, nu.Subdomain + "." + h.dnsConfig.Domain, nu.Subdomain, nu.AllowFrom}
 		regStatus = http.StatusCreated
 		reg, err = json.Marshal(regStruct)
 		if err != nil {

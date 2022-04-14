@@ -16,7 +16,7 @@ func TestGetIPListFromHeader(t *testing.T) {
 	}{
 		{"typical", "1.1.1.1, 2.2.2.2", []string{"1.1.1.1", "2.2.2.2"}},
 		{"odd spacing", " 1.1.1.1 , 2.2.2.2", []string{"1.1.1.1", "2.2.2.2"}},
-		{"empty elements", ",1.1.1.1 ,2.2.2.2", []string{"1.1.1.1", "2.2.2.2"}},
+		{"empty elements", ",1.1.1.1, ,2.2.2.2", []string{"1.1.1.1", "2.2.2.2"}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			res := getIPListFromHeader(test.input)
@@ -24,7 +24,7 @@ func TestGetIPListFromHeader(t *testing.T) {
 				t.Errorf("Expected [%d] items in return list, but got [%d]", len(test.output), len(res))
 			} else {
 				for j, vv := range test.output {
-					if res[j] != vv {
+					if res[j].String() != vv {
 						t.Errorf("Expected return value [%v] but got [%v]", test.output, res)
 					}
 				}
@@ -42,7 +42,7 @@ func TestUpdateAllowedFromIP(t *testing.T) {
 	if err != nil {
 		panic(err)
 	}
-	userWithAllow.AllowFrom = model.CIDRSlice{"192.168.1.2/32", "[::1]/128"}
+	userWithAllow.AllowFrom, _ = model.ParseCIDRSlice([]string{"192.168.1.2/32", "[::1]/128"})
 	userWithoutAllow, err := model.NewACMETxt()
 	if err != nil {
 		panic(err)
