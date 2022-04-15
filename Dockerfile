@@ -1,23 +1,19 @@
-FROM golang:alpine AS builder
-LABEL maintainer="joona@kuori.org"
+FROM docker.io/library/golang:alpine AS builder
+LABEL maintainer="jonathan@sleepingcyb.org"
 
 RUN apk add --update gcc musl-dev git
 
-ENV GOPATH /tmp/buildcache
-RUN git clone https://github.com/joohoi/acme-dns /tmp/acme-dns
-WORKDIR /tmp/acme-dns
-RUN CGO_ENABLED=1 go build
+ENV GOPATH /go
+ENV CGO_ENABLED 1
+COPY . /src
+WORKDIR /src
+RUN go build -ldflags="-extldflags=-static" ./cmd/dnsacmed
 
-FROM alpine:latest
+FROM scratch
 
-WORKDIR /root/
-COPY --from=builder /tmp/acme-dns .
-RUN mkdir -p /etc/acme-dns
-RUN mkdir -p /var/lib/acme-dns
-RUN rm -rf ./config.cfg
-RUN apk --no-cache add ca-certificates && update-ca-certificates
+COPY --from=builder /src/dnsacmed /bin/dnsacmed
 
-VOLUME ["/etc/acme-dns", "/var/lib/acme-dns"]
-ENTRYPOINT ["./acme-dns"]
+VOLUME ["/etc/dnsacmed", "/var/lib/dnsacmed"]
+ENTRYPOINT ["/bin/dnsacmed"]
 EXPOSE 53 80 443
 EXPOSE 53/udp
