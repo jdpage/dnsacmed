@@ -128,10 +128,21 @@ func (h webUpdateHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 // Endpoint used to check the readiness and/or liveness (health) of the server.
-func healthCheck(w http.ResponseWriter, r *http.Request) {
+type healthCheckHandler struct {
+	logger *zap.Logger
+	db     db.Database
+}
+
+func (h healthCheckHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		w.Header().Set("Allow", "GET")
 		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	if err := h.db.GetBackend().Ping(); err != nil {
+		h.logger.Error("Could not ping database", zap.Error(err))
+		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
 
@@ -146,7 +157,7 @@ func StartHTTPAPI(errChan chan error, config *Config, dnsConfig *dns.Config, log
 	api.HandleFunc("/update", func(w http.ResponseWriter, r *http.Request) {
 		authMiddleware{config, logger, db}.ServeHTTP(w, r, webUpdateHandler{logger, db}.ServeHTTP)
 	})
-	api.HandleFunc("/health", healthCheck)
+	api.Handle("/health", healthCheckHandler{logger, db})
 
 	errorLog, err := zap.NewStdLogAt(logger, zap.ErrorLevel)
 	if err != nil {

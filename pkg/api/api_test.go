@@ -75,7 +75,7 @@ func setupRouter(logger *zap.Logger, db db.Database, opts ...routerOpt) http.Han
 	config, dnsConfig := setupConfigs(options.useHeader)
 	api := http.NewServeMux()
 	api.Handle("/register", webRegisterHandler{&config, &dnsConfig, logger, db})
-	api.HandleFunc("/health", healthCheck)
+	api.Handle("/health", healthCheckHandler{logger, db})
 	if options.noAuth {
 		api.HandleFunc("/update", noAuthMiddleware(webUpdateHandler{logger, db}.ServeHTTP))
 	} else {
@@ -459,7 +459,9 @@ func TestApiManyUpdateWithIpCheckHeaders(t *testing.T) {
 }
 
 func TestApiHealthCheck(t *testing.T) {
-	router := setupRouter(zaptest.NewLogger(t), nil)
+	logger := zaptest.NewLogger(t)
+	db := setupDB(t, logger)
+	router := setupRouter(logger, db)
 	server := httptest.NewServer(router)
 	defer server.Close()
 	e := getExpect(t, server)
